@@ -45,13 +45,38 @@ This workspace consolidates the custom Model Context Protocol (MCP) servers buil
   npm start
   ```
 
+### 4. Google Analytics MCP (`google-analytics-mcp`)
+* **Path**: `google-analytics-mcp/`
+* **Entrypoint**: `google-analytics-mcp/dist/index.js`
+* **Purpose**: Query real-time metrics, custom reports, dimensions, metrics, and manage GA4 properties and accounts.
+* **Environment variables**:
+  * `GOOGLE_APPLICATION_CREDENTIALS` (Path to Google Service Account JSON key)
+  * `GA4_PROPERTY_ID` (Default numeric GA4 Property ID)
+* **Build/Run**:
+  ```bash
+  npm run build
+  npm start
+  ```
+
 ---
 
 ## Configuration with Claude Desktop
 
 The path references in `~/Library/Application Support/Claude/claude_desktop_config.json` have been updated to point to the consolidated paths in this workspace.
 
-### Example Server Entry:
+### Example Server Entry for Google Analytics:
+```json
+"google-analytics": {
+  "command": "node",
+  "args": [
+    "/Users/musfiqurtuhin/Documents/HaorGrix/MCP/google-analytics-mcp/dist/index.js"
+  ],
+  "env": {
+    "GOOGLE_APPLICATION_CREDENTIALS": "/Users/musfiqurtuhin/Documents/HaorGrix/MCP/google-analytics-mcp/credentials.json",
+    "GA4_PROPERTY_ID": "123456789"
+  }
+}
+```
 ```json
 "wordpress-fernhillbd": {
   "command": "node",
