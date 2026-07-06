@@ -1,0 +1,19 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+build/
+out/
+*.tsbuildinfo
+
+# Credentials and environment secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# OS/System files
+.DS_Store
+Thumbs.db
