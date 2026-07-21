@@ -2,6 +2,37 @@
 
 All notable changes to the consolidated MCP servers workspace will be documented in this file.
 
+## [2026-07-21]
+### Changed
+- **meta-ads MCP rewritten to v2.0.0** (`mcp-meta-ads_new/`). The v1 server returned
+  incomplete data: `list_campaigns` never paginated (25 of 31 campaigns on the Podium
+  account) and `get_insights` ignored `level`, returning only spend + impressions.
+- Graph API bumped v20.0 (EOL) -> v23.0, now configurable via `META_API_VERSION`.
+- Split the single 220-line `index.js` into `src/config.js`, `src/graph.js`,
+  `src/fields.js`, `src/tools.js`; `index.js` is now transport + dispatch only.
+- Replaced axios with native fetch; dependency dropped.
+
+### Added
+- Cursor pagination to exhaustion, with `truncated` flag on the page cap.
+- Retry with exponential backoff + jitter on retryable Graph codes and 5xx/429.
+- `get_insights`: `level`, `since`/`until`, `time_increment`, `breakdowns`,
+  `action_breakdowns`, `filtering`, field overrides, 29-field default projection.
+- Auto-degrade: heavy queries failing Meta's `code 1 / subcode 99` retry with a reduced
+  projection and return a `degraded` marker instead of erroring.
+- New tools: `get_ad_account`, `list_adsets`, `list_ads`, `list_creatives`,
+  `get_account_snapshot`, `create_adset`, `update_status`.
+- `.env.example` documenting every config key.
+
+### Security
+- Write tools are opt-in via `META_ALLOW_WRITES` and unregistered when disabled, so they
+  cannot be invoked by guessing a tool name. Creates are always PAUSED.
+- Input validation on account and node ids before any request is issued.
+- Config validation at boot: the server exits rather than starting with a placeholder token.
+
+### Deprecated
+- `mcp-meta-ads/` renamed to `mcp-meta-ads_OLD-do-not-use/` with a README explaining why.
+  Nothing deleted.
+
 ## [2026-07-07]
 ### Added
 - Created the centralized `MCP/` repository workspace.
@@ -15,3 +46,24 @@ All notable changes to the consolidated MCP servers workspace will be documented
 
 ### Changed
 - Updated `/Users/musfiqurtuhin/Library/Application Support/Claude/claude_desktop_config.json` to point to the new consolidated paths for the WordPress and cPanel MCP servers, and registered the new `google-analytics` MCP server.
+
+## [2026-07-07] — Enterprise Growth Acceleration Sprint
+
+### MCP Server Enhancements
+- **GSC MCP v2.0.0**: Expanded from 2 to 10 tools — added `inspect_url`, `list_sitemaps`, `submit_sitemap`, `delete_sitemap`, `submit_url_for_indexing`, `get_indexing_status`, `get_ctr_rescue_candidates`, `get_position_changes`. Added advanced search analytics with 25K row limit, search type filtering, dimension filters, and aggregation modes.
+- **GA MCP**: Added 4 new tools — `ga_get_top_conversion_paths`, `ga_get_landing_page_performance`, `ga_get_user_acquisition`, `ga_get_event_breakdown` for conversion funnel analysis and attribution.
+
+### Conversion Infrastructure (server/haorgrix)
+- **ExitIntent.tsx**: New exit-intent popup for BOFU pages. Desktop mouseout + mobile scroll-up detection. Session-gated, delay-activated, auto-adapts variant (audit vs. book call) based on B2B cookie.
+- **StickyBottomCTA.tsx**: New persistent bottom CTA bar. Scroll-triggered, dismissible, mobile-safe with 44px+ tap targets. Promotes free AI audit.
+- **ContentGate.tsx**: New email-gated content download component. Captures leads via /api/contact, auto-triggers download, tracks GA4 generate_lead conversion.
+- **Contact API**: Added honeypot spam trap, UTM parameter extraction (source/medium/campaign/term/content), referrer tracking, landing page attribution, timezone detection, user-agent capture.
+
+### SEO Architecture
+- **middleware.ts**: Expanded matcher to /book, /contact, /blog, /free-audit, /growth-report. Added X-Robots-Tag noindex for non-semantic geo pages.
+- **layout.tsx JSON-LD**: Added SearchAction (sitelinks search box), SpeakableSpecification (AI citation), areaServed, knowsAbout, OfferCatalog, foundingDate, numberOfEmployees.
+- **next.config.mjs**: Added experimental.optimizePackageImports for lucide-react and framer-motion.
+
+### Analytics Instrumentation
+- **WhaleTracker.tsx**: Extended from BOFU-only to site-wide tracking. Added rage-click detection, form abandonment tracking (120s timer).
+- **analytics.ts**: Added LinkedIn Insight Tag, Microsoft Clarity custom tags, GA4 Enhanced Conversions data layer, booking intent tracker, exit intent tracker.

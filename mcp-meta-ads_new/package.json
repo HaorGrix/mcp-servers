@@ -1,0 +1,21 @@
+{
+  "name": "mcp-meta-ads",
+  "version": "2.0.0",
+  "description": "Meta Marketing API MCP server: paginated reads, insights with breakdowns, guarded writes.",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "check": "node --check index.js && node --check src/config.js && node --check src/graph.js && node --check src/tools.js && node --check src/fields.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "dotenv": "^17.4.2"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

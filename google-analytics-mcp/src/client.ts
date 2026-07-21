@@ -208,6 +208,206 @@ export class GoogleAnalyticsClient {
     }
   }
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  //  ADMIN API — WRITE / MANAGEMENT (requires SA = Editor/Administrator on the
+  //  GA4 property). All mutations are scoped to a single property.
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /** Build a fully-qualified admin resource name from a short id or pass-through full name. */
+  private resolveResourceName(collection: string, propertyId: string, idOrName: string): string {
+    if (idOrName.startsWith("properties/")) return idOrName;
+    return `properties/${propertyId}/${collection}/${idOrName}`;
+  }
+
+  // ─── Custom Dimensions ───────────────────────────────────────────────────────
+  public async listCustomDimensions(propertyId?: string) {
+    this.ensureClientsReady();
+    const id = this.resolvePropertyId(propertyId);
+    try {
+      const [dims] = await this.adminClient!.listCustomDimensions({ parent: `properties/${id}` });
+      return dims.map(d => ({
+        name: d.name,
+        parameterName: d.parameterName,
+        displayName: d.displayName,
+        scope: d.scope,
+        description: d.description,
+        disallowAdsPersonalization: d.disallowAdsPersonalization,
+      }));
+    } catch (error: any) {
+      throw new Error(`Failed to list custom dimensions for property ${id}: ${error.message}`);
+    }
+  }
+
+  public async createCustomDimension(options: {
+    propertyId?: string;
+    parameterName: string;
+    displayName: string;
+    scope?: "EVENT" | "USER" | "ITEM";
+    description?: string;
+    disallowAdsPersonalization?: boolean;
+  }) {
+    this.ensureClientsReady();
+    const id = this.resolvePropertyId(options.propertyId);
+    try {
+      const [dim] = await this.adminClient!.createCustomDimension({
+        parent: `properties/${id}`,
+        customDimension: {
+          parameterName: options.parameterName,
+          displayName: options.displayName,
+          scope: options.scope || "EVENT",
+          description: options.description,
+          disallowAdsPersonalization: options.disallowAdsPersonalization ?? false,
+        },
+      });
+      return { created: true, name: dim.name, parameterName: dim.parameterName, displayName: dim.displayName, scope: dim.scope };
+    } catch (error: any) {
+      throw new Error(`Failed to create custom dimension '${options.parameterName}' on property ${id}: ${error.message}`);
+    }
+  }
+
+  public async archiveCustomDimension(options: { propertyId?: string; name: string }) {
+    this.ensureClientsReady();
+    const id = this.resolvePropertyId(options.propertyId);
+    const name = this.resolveResourceName("customDimensions", id, options.name);
+    try {
+      await this.adminClient!.archiveCustomDimension({ name });
+      return { archived: true, name };
+    } catch (error: any) {
+      throw new Error(`Failed to archive custom dimension '${name}': ${error.message}`);
+    }
+  }
+
+  // ─── Custom Metrics ──────────────────────────────────────────────────────────
+  public async listCustomMetrics(propertyId?: string) {
+    this.ensureClientsReady();
+    const id = this.resolvePropertyId(propertyId);
+    try {
+      const [metrics] = await this.adminClient!.listCustomMetrics({ parent: `properties/${id}` });
+      return metrics.map(m => ({
+        name: m.name,
+        parameterName: m.parameterName,
+        displayName: m.displayName,
+        measurementUnit: m.measurementUnit,
+        scope: m.scope,
+        description: m.description,
+      }));
+    } catch (error: any) {
+      throw new Error(`Failed to list custom metrics for property ${id}: ${error.message}`);
+    }
+  }
+
+  public async createCustomMetric(options: {
+    propertyId?: string;
+    parameterName: string;
+    displayName: string;
+    measurementUnit?: "STANDARD" | "CURRENCY" | "FEET" | "MILES" | "METERS" | "KILOMETERS" | "MILLISECONDS" | "SECONDS" | "MINUTES" | "HOURS";
+    description?: string;
+  }) {
+    this.ensureClientsReady();
+    const id = this.resolvePropertyId(options.propertyId);
+    try {
+      const [metric] = await this.adminClient!.createCustomMetric({
+        parent: `properties/${id}`,
+        customMetric: {
+          parameterName: options.parameterName,
+          displayName: options.displayName,
+          measurementUnit: options.measurementUnit || "STANDARD",
+          scope: "EVENT",
+          description: options.description,
+        },
+      });
+      return { created: true, name: metric.name, parameterName: metric.parameterName, displayName: metric.displayName, measurementUnit: metric.measurementUnit };
+    } catch (error: any) {
+      throw new Error(`Failed to create custom metric '${options.parameterName}' on property ${id}: ${error.message}`);
+    }
+  }
+
+  public async archiveCustomMetric(options: { propertyId?: string; name: string }) {
+    this.ensureClientsReady();
+    const id = this.resolvePropertyId(options.propertyId);
+    const name = this.resolveResourceName("customMetrics", id, options.name);
+    try {
+      await this.adminClient!.archiveCustomMetric({ name });
+      return { archived: true, name };
+    } catch (error: any) {
+      throw new Error(`Failed to archive custom metric '${name}': ${error.message}`);
+    }
+  }
+
+  // ─── Conversion / Key Events ─────────────────────────────────────────────────
+  //  GA4 renamed "conversion events" → "key events" (2024). We use the current,
+  //  non-deprecated Key Events API. Tool names keep the familiar "conversion"
+  //  wording; the underlying resource collection is `keyEvents`.
+  public async listConversionEvents(propertyId?: string) {
+    this.ensureClientsReady();
+    const id = this.resolvePropertyId(propertyId);
+    try {
+      const [events] = await this.adminClient!.listKeyEvents({ parent: `properties/${id}` });
+      return events.map(e => ({
+        name: e.name,
+        eventName: e.eventName,
+        countingMethod: e.countingMethod,
+        custom: e.custom,
+        deletable: e.deletable,
+        createTime: e.createTime,
+      }));
+    } catch (error: any) {
+      throw new Error(`Failed to list key events for property ${id}: ${error.message}`);
+    }
+  }
+
+  public async createConversionEvent(options: {
+    propertyId?: string;
+    eventName: string;
+    countingMethod?: "ONCE_PER_EVENT" | "ONCE_PER_SESSION";
+  }) {
+    this.ensureClientsReady();
+    const id = this.resolvePropertyId(options.propertyId);
+    try {
+      const [ev] = await this.adminClient!.createKeyEvent({
+        parent: `properties/${id}`,
+        keyEvent: {
+          eventName: options.eventName,
+          countingMethod: options.countingMethod || "ONCE_PER_EVENT",
+        },
+      });
+      return { created: true, name: ev.name, eventName: ev.eventName, countingMethod: ev.countingMethod };
+    } catch (error: any) {
+      throw new Error(`Failed to create key event '${options.eventName}' on property ${id}: ${error.message}`);
+    }
+  }
+
+  public async deleteConversionEvent(options: { propertyId?: string; name: string }) {
+    this.ensureClientsReady();
+    const id = this.resolvePropertyId(options.propertyId);
+    const name = this.resolveResourceName("keyEvents", id, options.name);
+    try {
+      await this.adminClient!.deleteKeyEvent({ name });
+      return { deleted: true, name };
+    } catch (error: any) {
+      throw new Error(`Failed to delete key event '${name}': ${error.message}`);
+    }
+  }
+
+  // ─── Data Streams (read — surfaces Measurement IDs for pipeline verification) ─
+  public async listDataStreams(propertyId?: string) {
+    this.ensureClientsReady();
+    const id = this.resolvePropertyId(propertyId);
+    try {
+      const [streams] = await this.adminClient!.listDataStreams({ parent: `properties/${id}` });
+      return streams.map(s => ({
+        name: s.name,
+        displayName: s.displayName,
+        type: s.type,
+        measurementId: s.webStreamData?.measurementId,
+        defaultUri: s.webStreamData?.defaultUri,
+        firebaseAppId: s.webStreamData?.firebaseAppId,
+      }));
+    } catch (error: any) {
+      throw new Error(`Failed to list data streams for property ${id}: ${error.message}`);
+    }
+  }
+
   /**
    * Format Google Analytics response to a clean, readable JSON format.
    */

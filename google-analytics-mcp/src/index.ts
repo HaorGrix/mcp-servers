@@ -115,6 +115,298 @@ server.tool(
   }
 );
 
+// ── 5. Top Conversion Paths ──────────────────────────────────────────────────
+server.tool(
+  'ga_get_top_conversion_paths',
+  {
+    propertyId: z.string().optional().describe("GA4 Property ID."),
+    startDate: z.string().describe("Start date (YYYY-MM-DD or relative like '30daysAgo')."),
+    endDate: z.string().describe("End date (YYYY-MM-DD or relative like 'today')."),
+    limit: z.number().optional().describe("Max rows. Default: 50.")
+  },
+  async ({ propertyId, startDate, endDate, limit }) => {
+    try {
+      const data = await client.runReport({
+        propertyId,
+        startDate,
+        endDate,
+        dimensions: [
+          { name: 'sessionSource' },
+          { name: 'sessionMedium' },
+          { name: 'landingPagePlusQueryString' },
+        ],
+        metrics: [
+          { name: 'sessions' },
+          { name: 'conversions' },
+          { name: 'engagementRate' },
+          { name: 'averageSessionDuration' },
+        ],
+        limit: limit || 50,
+      });
+      return {
+        content: [{ type: 'text', text: JSON.stringify(data, null, 2) }]
+      };
+    } catch (error: any) {
+      return {
+        content: [{ type: 'text', text: `Error: ${error.message}` }],
+        isError: true
+      };
+    }
+  }
+);
+
+// ── 6. Landing Page Performance ──────────────────────────────────────────────
+server.tool(
+  'ga_get_landing_page_performance',
+  {
+    propertyId: z.string().optional().describe("GA4 Property ID."),
+    startDate: z.string().describe("Start date (YYYY-MM-DD or relative)."),
+    endDate: z.string().describe("End date (YYYY-MM-DD or relative)."),
+    limit: z.number().optional().describe("Max rows. Default: 100.")
+  },
+  async ({ propertyId, startDate, endDate, limit }) => {
+    try {
+      const data = await client.runReport({
+        propertyId,
+        startDate,
+        endDate,
+        dimensions: [
+          { name: 'landingPagePlusQueryString' },
+        ],
+        metrics: [
+          { name: 'sessions' },
+          { name: 'activeUsers' },
+          { name: 'bounceRate' },
+          { name: 'averageSessionDuration' },
+          { name: 'screenPageViewsPerSession' },
+          { name: 'conversions' },
+          { name: 'engagementRate' },
+        ],
+        limit: limit || 100,
+      });
+      return {
+        content: [{ type: 'text', text: JSON.stringify(data, null, 2) }]
+      };
+    } catch (error: any) {
+      return {
+        content: [{ type: 'text', text: `Error: ${error.message}` }],
+        isError: true
+      };
+    }
+  }
+);
+
+// ── 7. User Acquisition Report ───────────────────────────────────────────────
+server.tool(
+  'ga_get_user_acquisition',
+  {
+    propertyId: z.string().optional().describe("GA4 Property ID."),
+    startDate: z.string().describe("Start date."),
+    endDate: z.string().describe("End date."),
+    limit: z.number().optional().describe("Max rows. Default: 50.")
+  },
+  async ({ propertyId, startDate, endDate, limit }) => {
+    try {
+      const data = await client.runReport({
+        propertyId,
+        startDate,
+        endDate,
+        dimensions: [
+          { name: 'firstUserSource' },
+          { name: 'firstUserMedium' },
+          { name: 'firstUserCampaignName' },
+        ],
+        metrics: [
+          { name: 'newUsers' },
+          { name: 'activeUsers' },
+          { name: 'sessions' },
+          { name: 'engagementRate' },
+          { name: 'conversions' },
+        ],
+        limit: limit || 50,
+      });
+      return {
+        content: [{ type: 'text', text: JSON.stringify(data, null, 2) }]
+      };
+    } catch (error: any) {
+      return {
+        content: [{ type: 'text', text: `Error: ${error.message}` }],
+        isError: true
+      };
+    }
+  }
+);
+
+// ── 8. Event Breakdown Report ────────────────────────────────────────────────
+server.tool(
+  'ga_get_event_breakdown',
+  {
+    propertyId: z.string().optional().describe("GA4 Property ID."),
+    startDate: z.string().describe("Start date."),
+    endDate: z.string().describe("End date."),
+    limit: z.number().optional().describe("Max rows. Default: 100.")
+  },
+  async ({ propertyId, startDate, endDate, limit }) => {
+    try {
+      const data = await client.runReport({
+        propertyId,
+        startDate,
+        endDate,
+        dimensions: [
+          { name: 'eventName' },
+        ],
+        metrics: [
+          { name: 'eventCount' },
+          { name: 'totalUsers' },
+          { name: 'eventCountPerUser' },
+          { name: 'conversions' },
+        ],
+        limit: limit || 100,
+      });
+      return {
+        content: [{ type: 'text', text: JSON.stringify(data, null, 2) }]
+      };
+    } catch (error: any) {
+      return {
+        content: [{ type: 'text', text: `Error: ${error.message}` }],
+        isError: true
+      };
+    }
+  }
+);
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  ADMIN / WRITE TOOLS (GA4 Admin API) — require the service account to have
+//  Editor or Administrator access on the target GA4 property.
+// ═══════════════════════════════════════════════════════════════════════════
+
+const ok = (data: unknown) => ({ content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }] });
+const fail = (error: any) => ({ content: [{ type: 'text' as const, text: `Error: ${error.message}` }], isError: true });
+
+// ── 9. List Custom Dimensions ────────────────────────────────────────────────
+server.tool(
+  'ga_list_custom_dimensions',
+  {
+    propertyId: z.string().optional().describe("GA4 Property ID (numeric). Defaults to GA4_PROPERTY_ID.")
+  },
+  async ({ propertyId }) => {
+    try { return ok(await client.listCustomDimensions(propertyId)); } catch (e: any) { return fail(e); }
+  }
+);
+
+// ── 10. Create Custom Dimension ──────────────────────────────────────────────
+server.tool(
+  'ga_create_custom_dimension',
+  {
+    propertyId: z.string().optional().describe("GA4 Property ID (numeric). Defaults to GA4_PROPERTY_ID."),
+    parameterName: z.string().describe("The event parameter or user property name that feeds this dimension (e.g. 'lead_source'). Must already be sent by your tags."),
+    displayName: z.string().describe("Human-readable name shown in the GA4 UI (e.g. 'Lead Source')."),
+    scope: z.enum(["EVENT", "USER", "ITEM"]).optional().describe("Dimension scope. Defaults to EVENT."),
+    description: z.string().optional().describe("Optional description."),
+    disallowAdsPersonalization: z.boolean().optional().describe("If true, marks the dimension as NPA (no ads personalization). Defaults to false.")
+  },
+  async (args) => {
+    try { return ok(await client.createCustomDimension(args)); } catch (e: any) { return fail(e); }
+  }
+);
+
+// ── 11. Archive Custom Dimension ─────────────────────────────────────────────
+server.tool(
+  'ga_archive_custom_dimension',
+  {
+    propertyId: z.string().optional().describe("GA4 Property ID (numeric). Defaults to GA4_PROPERTY_ID."),
+    name: z.string().describe("Custom dimension id or full resource name (e.g. '123' or 'properties/456/customDimensions/123').")
+  },
+  async (args) => {
+    try { return ok(await client.archiveCustomDimension(args)); } catch (e: any) { return fail(e); }
+  }
+);
+
+// ── 12. List Custom Metrics ──────────────────────────────────────────────────
+server.tool(
+  'ga_list_custom_metrics',
+  {
+    propertyId: z.string().optional().describe("GA4 Property ID (numeric). Defaults to GA4_PROPERTY_ID.")
+  },
+  async ({ propertyId }) => {
+    try { return ok(await client.listCustomMetrics(propertyId)); } catch (e: any) { return fail(e); }
+  }
+);
+
+// ── 13. Create Custom Metric ─────────────────────────────────────────────────
+server.tool(
+  'ga_create_custom_metric',
+  {
+    propertyId: z.string().optional().describe("GA4 Property ID (numeric). Defaults to GA4_PROPERTY_ID."),
+    parameterName: z.string().describe("The event parameter name that feeds this metric (e.g. 'deal_value')."),
+    displayName: z.string().describe("Human-readable name shown in the GA4 UI (e.g. 'Deal Value')."),
+    measurementUnit: z.enum(["STANDARD", "CURRENCY", "FEET", "MILES", "METERS", "KILOMETERS", "MILLISECONDS", "SECONDS", "MINUTES", "HOURS"]).optional().describe("Measurement unit. Defaults to STANDARD."),
+    description: z.string().optional().describe("Optional description.")
+  },
+  async (args) => {
+    try { return ok(await client.createCustomMetric(args)); } catch (e: any) { return fail(e); }
+  }
+);
+
+// ── 14. Archive Custom Metric ────────────────────────────────────────────────
+server.tool(
+  'ga_archive_custom_metric',
+  {
+    propertyId: z.string().optional().describe("GA4 Property ID (numeric). Defaults to GA4_PROPERTY_ID."),
+    name: z.string().describe("Custom metric id or full resource name (e.g. '123' or 'properties/456/customMetrics/123').")
+  },
+  async (args) => {
+    try { return ok(await client.archiveCustomMetric(args)); } catch (e: any) { return fail(e); }
+  }
+);
+
+// ── 15. List Conversion Events ───────────────────────────────────────────────
+server.tool(
+  'ga_list_conversion_events',
+  {
+    propertyId: z.string().optional().describe("GA4 Property ID (numeric). Defaults to GA4_PROPERTY_ID.")
+  },
+  async ({ propertyId }) => {
+    try { return ok(await client.listConversionEvents(propertyId)); } catch (e: any) { return fail(e); }
+  }
+);
+
+// ── 16. Create Conversion Event (Key Event) ──────────────────────────────────
+server.tool(
+  'ga_create_conversion_event',
+  {
+    propertyId: z.string().optional().describe("GA4 Property ID (numeric). Defaults to GA4_PROPERTY_ID."),
+    eventName: z.string().describe("The event name to mark as a conversion / key event (e.g. 'generate_lead')."),
+    countingMethod: z.enum(["ONCE_PER_EVENT", "ONCE_PER_SESSION"]).optional().describe("How conversions are counted. Defaults to ONCE_PER_EVENT.")
+  },
+  async (args) => {
+    try { return ok(await client.createConversionEvent(args)); } catch (e: any) { return fail(e); }
+  }
+);
+
+// ── 17. Delete Conversion Event ──────────────────────────────────────────────
+server.tool(
+  'ga_delete_conversion_event',
+  {
+    propertyId: z.string().optional().describe("GA4 Property ID (numeric). Defaults to GA4_PROPERTY_ID."),
+    name: z.string().describe("Conversion event id or full resource name (e.g. '123' or 'properties/456/conversionEvents/123').")
+  },
+  async (args) => {
+    try { return ok(await client.deleteConversionEvent(args)); } catch (e: any) { return fail(e); }
+  }
+);
+
+// ── 18. List Data Streams (surfaces Measurement IDs) ─────────────────────────
+server.tool(
+  'ga_list_data_streams',
+  {
+    propertyId: z.string().optional().describe("GA4 Property ID (numeric). Defaults to GA4_PROPERTY_ID.")
+  },
+  async ({ propertyId }) => {
+    try { return ok(await client.listDataStreams(propertyId)); } catch (e: any) { return fail(e); }
+  }
+);
+
 // Start StdIO Transport
 const transport = new StdioServerTransport();
 
