@@ -2,6 +2,25 @@
 
 All notable changes to the consolidated MCP servers workspace will be documented in this file.
 
+## [2026-07-22]
+### Security
+- **Purged two committed Google service-account private keys from git history**
+  (`google-analytics-mcp/credentials.json`, `google-search-console-mcp/credentials.json`)
+  with `git-filter-repo` before the repository was published. Both keys must be treated
+  as compromised and rotated in Google Cloud.
+- `.gitignore` now excludes `credentials.json`, `*service-account*.json` and local API
+  result dumps; `credentials.example.json` added for both Google servers.
+- `google-search-console-mcp/.env.example` added — it was the only server without one.
+
+### Added
+- Product Requirements Documents for all six servers plus a portfolio index, in
+  `documentation/PRD/`. Generated from source via `python3 documentation/PRD/_build/build.py`.
+
+### Changed
+- Published as the private monorepo `HaorGrix/mcp-servers`.
+- Meta Ads v1 moved to `archive/mcp-meta-ads-v1-deprecated/` with an archive README.
+- Root `README.md` rewritten: all six servers, tool counts, env vars, and credential setup.
+
 ## [2026-07-21]
 ### Changed
 - **meta-ads MCP rewritten to v2.0.0** (`mcp-meta-ads_new/`). The v1 server returned

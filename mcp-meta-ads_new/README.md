@@ -3,7 +3,7 @@
 MCP server over the Meta Marketing (Graph) API. Read-only by default; writes are opt-in
 and always create PAUSED objects.
 
-The retired duplicate lives at [`../mcp-meta-ads_OLD-do-not-use/`](../mcp-meta-ads_OLD-do-not-use/) —
+The retired duplicate lives at [`../archive/mcp-meta-ads-v1-deprecated/`](../archive/mcp-meta-ads-v1-deprecated/) —
 kept for reference, superseded by this rewrite.
 
 - **Graph API:** v23.0 (configurable)
