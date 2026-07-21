@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { BrevoClient } from '../client.js';
-import type { BrevoCampaign, BrevoCampaignList } from '../types.js';
+import type { BrevoCampaign, BrevoCampaignList, BrevoCampaignStats } from '../types.js';
 import { ok } from './helpers.js';
 
 export function registerStatsTools(server: McpServer, client: BrevoClient): void {
@@ -60,40 +60,94 @@ export function registerStatsTools(server: McpServer, client: BrevoClient): void
       if (campaigns.length === 0) return ok('No sent campaigns found.');
 
       const rows = campaigns.map((c: BrevoCampaign) => {
-        const s = c.statistics?.globalStats;
-        const sent = s?.sent ?? 0;
-        const delivered = s?.delivered ?? 0;
-        const bounces = (s?.hardBounces ?? 0) + (s?.softBounces ?? 0);
+        const s = resolveStats(c);
+        // appleMppOpens exists only on globalStats, which Brevo zeroes for
+        // list-based campaigns. When the breakdown supplied the numbers there
+        // is no MPP figure to subtract, so report null rather than a real-
+        // looking open rate that silently equals the inflated one.
+        const globalSent = c.statistics?.globalStats?.sent ?? 0;
+        const mpp = globalSent > 0 ? (c.statistics?.globalStats?.appleMppOpens ?? 0) : null;
+        const bounces = s.hardBounces + s.softBounces;
         const pct = (n: number, d: number) => (d > 0 ? Number(((n / d) * 100).toFixed(2)) : 0);
+        const humanOpens = mpp === null ? null : Math.max(0, s.uniqueViews - mpp);
         return {
           id: c.id,
           name: c.name,
           sender: c.sender?.email ?? 'unknown',
-          sent,
-          delivered,
-          bounceRate: pct(bounces, sent),
-          openRate: pct(s?.uniqueViews ?? 0, delivered),
-          clickRate: pct(s?.uniqueClicks ?? 0, delivered),
-          complaints: s?.complaints ?? 0,
-          unsubscribes: s?.unsubscriptions ?? 0,
-          warnings: buildWarnings(pct(bounces, sent), s?.complaints ?? 0, delivered, c.sender?.email),
+          sent: s.sent,
+          delivered: s.delivered,
+          bounceRate: pct(bounces, s.sent),
+          openRate: pct(s.uniqueViews, s.delivered),
+          appleMppOpens: mpp,
+          realOpenRate: humanOpens === null ? null : pct(humanOpens, s.delivered),
+          clickRate: pct(s.uniqueClicks, s.delivered),
+          complaints: s.complaints,
+          unsubscribes: s.unsubscriptions,
+          warnings: buildWarnings(pct(bounces, s.sent), s.complaints, s.delivered, c.sender?.email),
         };
       });
 
       const totals = rows.reduce(
-        (acc, r) => ({ sent: acc.sent + r.sent, delivered: acc.delivered + r.delivered }),
-        { sent: 0, delivered: 0 },
+        (acc, r) => ({
+          sent: acc.sent + r.sent,
+          delivered: acc.delivered + r.delivered,
+          appleMppOpens: acc.appleMppOpens + (r.appleMppOpens ?? 0),
+          unsubscribes: acc.unsubscribes + r.unsubscribes,
+        }),
+        { sent: 0, delivered: 0, appleMppOpens: 0, unsubscribes: 0 },
       );
 
       return ok({
         campaignCount: rows.length,
         totals,
         note:
-          'Open rate is inflated by Apple MPP prefetch. For reply-driven campaigns, count replies by hand; ' +
-          'Brevo cannot measure them.',
+          'realOpenRate is null when Brevo returned per-list stats only, because appleMppOpens lives on ' +
+          'globalStats which is zeroed for those campaigns. Use the CSV export for MPP. For reply-driven ' +
+          'campaigns all of this is secondary: Brevo cannot see replies, so count them by hand.',
         campaigns: rows,
       });
     },
+  );
+}
+
+/**
+ * Brevo zeroes globalStats on list-based campaigns and fills campaignStats
+ * per recipient list instead, so summing the breakdown is the only way to get
+ * real numbers. Falls back to globalStats when no breakdown is present.
+ */
+function resolveStats(c: BrevoCampaign): BrevoCampaignStats {
+  const empty: BrevoCampaignStats = {
+    uniqueClicks: 0,
+    clickers: 0,
+    complaints: 0,
+    delivered: 0,
+    sent: 0,
+    softBounces: 0,
+    hardBounces: 0,
+    uniqueViews: 0,
+    unsubscriptions: 0,
+    viewed: 0,
+  };
+  const global = c.statistics?.globalStats;
+  const perList = c.statistics?.campaignStats ?? [];
+
+  if (global && global.sent > 0) return global;
+  if (perList.length === 0) return global ?? empty;
+
+  return perList.reduce<BrevoCampaignStats>(
+    (acc, s) => ({
+      uniqueClicks: acc.uniqueClicks + s.uniqueClicks,
+      clickers: acc.clickers + s.clickers,
+      complaints: acc.complaints + s.complaints,
+      delivered: acc.delivered + s.delivered,
+      sent: acc.sent + s.sent,
+      softBounces: acc.softBounces + s.softBounces,
+      hardBounces: acc.hardBounces + s.hardBounces,
+      uniqueViews: acc.uniqueViews + s.uniqueViews,
+      unsubscriptions: acc.unsubscriptions + s.unsubscriptions,
+      viewed: acc.viewed + s.viewed,
+    }),
+    empty,
   );
 }
 

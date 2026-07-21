@@ -96,6 +96,12 @@ it means `META_MAX_PAGES` was hit and results are incomplete. Errors come back a
 
 ## Token note
 
-The token currently in `.env` is a **short-lived user token**. On expiry every call fails
-with `OAuthException 190`. Replace it, ideally with a System User token, which does not
-carry the 60-day clock.
+The token in `.env` is a **System User token** (app `podium_ads`, id `4340118169640058`)
+that **does not expire** (`expires_at: 0`). Scopes: `ads_management`, `ads_read`,
+`business_management`, `pages_manage_ads`, `pages_read_engagement`, `pages_show_list`,
+`catalog_management`.
+
+**Known limit:** the `podium_ads` app is in **Development mode**, so creative and ad
+creation fail with *"Ads creative post was created by an app that is in development mode."*
+Reads, campaigns and ad sets all work. Switch the app to Live at developers.facebook.com to
+lift this, or build ads in Ads Manager instead.

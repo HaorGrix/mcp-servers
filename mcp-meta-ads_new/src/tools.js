@@ -355,6 +355,43 @@ export function writeTools(graph) {
         }),
     },
     {
+      name: "create_ad",
+      description:
+        "Create a PAUSED ad in an existing ad set. Either reuse an organic post " +
+        "(object_story_id, which keeps its accumulated likes and comments) or supply a " +
+        "creative_id. Requires META_ALLOW_WRITES=true.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          ad_account_id: ACCOUNT_ID,
+          adset_id: { type: "string", description: "Parent ad set id." },
+          name: { type: "string", description: "Ad name." },
+          object_story_id: {
+            type: "string",
+            description: 'Existing post, formatted "<page_id>_<post_id>". Keeps its social proof.',
+          },
+          creative_id: { type: "string", description: "Existing ad creative id. Alternative to object_story_id." },
+        },
+        required: ["ad_account_id", "adset_id", "name"],
+      },
+      handler: async (a) => {
+        if (!a.object_story_id && !a.creative_id) {
+          throw new GraphError("Supply either object_story_id (an existing post) or creative_id.");
+        }
+        return graph.request(`${assertAccountId(a.ad_account_id)}/ads`, {}, {
+          method: "POST",
+          body: {
+            name: a.name,
+            adset_id: assertNodeId(a.adset_id, "adset_id"),
+            status: "PAUSED",
+            creative: a.creative_id
+              ? { creative_id: a.creative_id }
+              : { object_story_id: a.object_story_id },
+          },
+        });
+      },
+    },
+    {
       name: "update_status",
       description:
         "Set status (ACTIVE / PAUSED / ARCHIVED) on a campaign, ad set, or ad. " +

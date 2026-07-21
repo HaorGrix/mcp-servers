@@ -52,6 +52,14 @@ export interface BrevoCampaignStats {
   uniqueViews: number;
   unsubscriptions: number;
   viewed: number;
+  /** Present on globalStats only. Prefetch opens, not real readership. */
+  appleMppOpens?: number;
+  trackableViews?: number;
+}
+
+/** Per-list breakdown. Brevo leaves globalStats zeroed and fills this instead. */
+export interface BrevoCampaignListStats extends BrevoCampaignStats {
+  listId: number;
 }
 
 export interface BrevoCampaign {
@@ -64,7 +72,10 @@ export interface BrevoCampaign {
   sender: { name: string; email: string; id?: number };
   replyTo?: string;
   recipients?: { lists?: number[]; exclusionLists?: number[] };
-  statistics?: { globalStats?: BrevoCampaignStats };
+  statistics?: {
+    globalStats?: BrevoCampaignStats;
+    campaignStats?: BrevoCampaignListStats[];
+  };
 }
 
 export interface BrevoCampaignList {
