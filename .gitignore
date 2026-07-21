@@ -13,6 +13,12 @@ out/
 !.env.example
 *.pem
 *.key
+credentials.json
+*service-account*.json
+!credentials.example.json
+
+# Local API result dumps
+audit_results.json
 
 # OS/System files
 .DS_Store

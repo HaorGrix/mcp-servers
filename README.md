@@ -1,92 +1,84 @@
-# Consolidated MCP Servers Workspace
+# HaorGrix MCP Servers
 
-This workspace consolidates the custom Model Context Protocol (MCP) servers built for automating tasks across WordPress, cPanel, and Meta Ads.
+A monorepo of the custom Model Context Protocol (MCP) servers HaorGrix maintains for agent-driven operations across marketing, hosting, publishing, and analytics platforms.
 
-## Consolidated Servers
+All six servers speak MCP over **stdio** and are registered in the local Claude client config.
 
-### 1. Meta Ads Manager MCP (`mcp-meta-ads`)
-* **Path**: `mcp-meta-ads/`
-* **Entrypoint**: `mcp-meta-ads/index.js`
-* **Purpose**: Integrate and manage Meta Ad accounts and campaigns via the Meta Graph API.
-* **Environment variables**:
-  * `META_ACCESS_TOKEN`
-* **Run command**:
-  ```bash
-  node index.js
-  ```
+## Servers
 
-### 2. WordPress MCP (`wordpress-mcp`)
-* **Path**: `wordpress-mcp/`
-* **Entrypoint**: `wordpress-mcp/dist/index.js`
-* **Purpose**: Exposes tools for managing WordPress posts, pages, comments, users, media, WooCommerce integration, and taxonomies.
-* **Environment variables**:
-  * `WORDPRESS_URL`
-  * `WORDPRESS_USERNAME`
-  * `WORDPRESS_APP_PASSWORD`
-  * `WC_CONSUMER_KEY` (Optional, WooCommerce)
-  * `WC_CONSUMER_SECRET` (Optional, WooCommerce)
-* **Build/Run**:
-  ```bash
-  npm run build
-  npm start
-  ```
+| Server | Path | Platform | Tools | Language |
+| --- | --- | --- | --- | --- |
+| Brevo | `brevo-mcp/` | Brevo (email marketing) | 21 | TypeScript |
+| cPanel | `cpanel-mcp/` | cPanel UAPI | 51 | TypeScript |
+| Google Analytics | `google-analytics-mcp/` | GA4 Data + Admin API | 18 | TypeScript |
+| Google Search Console | `google-search-console-mcp/` | GSC + Indexing API | 10 | TypeScript |
+| Meta Ads | `mcp-meta-ads_new/` | Meta Graph API | 12 | JavaScript (ESM) |
+| WordPress | `wordpress-mcp/` | WP REST + WooCommerce + Cloudflare | 49 | TypeScript |
 
-### 3. cPanel MCP (`cpanel-mcp`)
-* **Path**: `cpanel-mcp/`
-* **Entrypoint**: `cpanel-mcp/dist/index.js`
-* **Purpose**: Exposes tools to interact with cPanel UAPI for managing Databases, Email accounts, FTP, Domains, SSL, Cron jobs, Backups, and DNS.
-* **Environment variables**:
-  * `CPANEL_HOST`
-  * `CPANEL_USERNAME`
-  * `CPANEL_PASSWORD`
-* **Build/Run**:
-  ```bash
-  npm run build
-  npm start
-  ```
+**161 tools total.** Superseded versions live in [`archive/`](archive/) and are not maintained.
 
-### 4. Google Analytics MCP (`google-analytics-mcp`)
-* **Path**: `google-analytics-mcp/`
-* **Entrypoint**: `google-analytics-mcp/dist/index.js`
-* **Purpose**: Query real-time metrics, custom reports, dimensions, metrics, and manage GA4 properties and accounts.
-* **Environment variables**:
-  * `GOOGLE_APPLICATION_CREDENTIALS` (Path to Google Service Account JSON key)
-  * `GA4_PROPERTY_ID` (Default numeric GA4 Property ID)
-* **Build/Run**:
-  ```bash
-  npm run build
-  npm start
-  ```
+Full product requirements for each server are in [`documentation/PRD/`](documentation/PRD/).
 
----
+### 1. Brevo MCP (`brevo-mcp`)
+Email marketing: account and sender checks, contact lists and imports, campaign lifecycle, and deliverability reporting.
+* **Env**: `BREVO_API_KEY` (required), `BREVO_BASE_URL`, `BREVO_ENFORCE_SENDER`, `BREVO_AUDIT_LOG`
+* **Safety**: dry-run mode, sender lock, rate limiting, audit log, and a `confirm` string gate on send/schedule.
+* **Build/Run**: `npm run build && npm start` — tests via `npm test`
 
-## Configuration with Claude Desktop
+### 2. cPanel MCP (`cpanel-mcp`)
+cPanel UAPI wrapper covering accounts, disk and bandwidth, PHP versions, SSL, email, domains and DNS, cron, backups, databases, and the file manager.
+* **Env**: `CPANEL_HOST`, `CPANEL_USERNAME`, `CPANEL_PASSWORD`, `CPANEL_BASE_URL`
+* **Note**: `cp_uapi_call` is an unbounded escape hatch to any UAPI module/function.
+* **Build/Run**: `npm run build && npm start`
 
-The path references in `~/Library/Application Support/Claude/claude_desktop_config.json` have been updated to point to the consolidated paths in this workspace.
+### 3. Google Analytics MCP (`google-analytics-mcp`)
+GA4 realtime and historical reporting, metadata, plus Admin API management of custom dimensions, custom metrics, and conversion events.
+* **Env**: `GOOGLE_APPLICATION_CREDENTIALS`, `GA4_PROPERTY_ID`
+* **Build/Run**: `npm run build && npm start`
 
-### Example Server Entry for Google Analytics:
+### 4. Google Search Console MCP (`google-search-console-mcp`)
+Search analytics, URL inspection, sitemap management, Indexing API submission, and derived CTR-rescue / position-change analyses.
+* **Env**: `GOOGLE_APPLICATION_CREDENTIALS`, `GSC_SITE_URL`
+* **Note**: the Indexing API requires Owner permission on the property and is capped at roughly 200 requests/day.
+* **Build/Run**: `npm run build && npm start`
+
+### 5. Meta Ads MCP (`mcp-meta-ads_new`, v2)
+Meta Graph API: ad accounts, campaigns, ad sets, ads, creatives, and insights with full pagination; campaign/ad-set/ad creation and status changes.
+* **Env**: `META_ACCESS_TOKEN`, `META_API_VERSION`, `META_TIMEOUT_MS`, `META_MAX_RETRIES`, `META_PAGE_LIMIT`, `META_MAX_PAGES`, `META_ALLOW_WRITES`
+* **Safety**: all write tools refuse unless `META_ALLOW_WRITES` is enabled.
+* **Run**: `npm start` (no build step) — syntax check via `npm run check`
+
+### 6. WordPress MCP (`wordpress-mcp`)
+Posts, pages, media, users, comments, taxonomies and CPTs, WooCommerce products/orders/customers, multi-layer cache purging, Elementor CSS regeneration, and Cloudflare purge.
+* **Env**: `WORDPRESS_URL`, `WORDPRESS_USERNAME`, `WORDPRESS_APP_PASSWORD`, `WC_CONSUMER_KEY`, `WC_CONSUMER_SECRET`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ZONE_ID`
+* **Note**: `wp_get_post_meta`, `wp_update_post_meta`, and `wp_cache_status` require the *Agent Cache Control* mu-plugin, deployed by cPanel MCP's `cp_deploy_cache_helper`.
+* **Build/Run**: `npm run build && npm start`
+
+## Credentials
+
+No secrets are committed. Each server ships a `.env.example`; the Google servers also ship `credentials.example.json`.
+
+```bash
+cd <server>
+cp .env.example .env      # fill in real values
+npm install && npm run build
+```
+
+`.env`, `credentials.json`, `*.pem`, and `*.key` are gitignored. Never commit a real service-account key — the two that were previously committed have been purged from history and must be treated as compromised until rotated.
+
+## Registering with a Claude client
+
+Point the client at the built entrypoint and pass credentials through `env`:
+
 ```json
 "google-analytics": {
   "command": "node",
-  "args": [
-    "/Users/musfiqurtuhin/Documents/HaorGrix/MCP/google-analytics-mcp/dist/index.js"
-  ],
+  "args": ["/absolute/path/to/MCP/google-analytics-mcp/dist/index.js"],
   "env": {
-    "GOOGLE_APPLICATION_CREDENTIALS": "/Users/musfiqurtuhin/Documents/HaorGrix/MCP/google-analytics-mcp/credentials.json",
+    "GOOGLE_APPLICATION_CREDENTIALS": "/absolute/path/to/MCP/google-analytics-mcp/credentials.json",
     "GA4_PROPERTY_ID": "123456789"
   }
 }
 ```
-```json
-"wordpress-fernhillbd": {
-  "command": "node",
-  "args": [
-    "/Users/musfiqurtuhin/Documents/HaorGrix/MCP/wordpress-mcp/dist/index.js"
-  ],
-  "env": {
-    "WORDPRESS_URL": "https://fernhillbd.com",
-    "WORDPRESS_USERNAME": "musfiqur",
-    "WORDPRESS_APP_PASSWORD": "..."
-  }
-}
-```
+
+Servers without a build step (Meta Ads) point directly at `index.js`.
