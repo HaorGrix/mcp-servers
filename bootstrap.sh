@@ -18,9 +18,18 @@ TS_SERVERS=(brevo-mcp cpanel-mcp google-analytics-mcp google-search-console-mcp
             meta-business-mcp wordpress-mcp zoho-mail-mcp)
 JS_SERVERS=(mcp-meta-ads_new)
 
-if [ -z "$CREDS" ] || [ ! -f "$CREDS" ]; then
+if [ -n "$CREDS" ] && [ ! -f "$CREDS" ]; then
+  echo "no such file: $CREDS" >&2
+  exit 1
+fi
+
+# No creds.txt is fine when the .env files are already on disk — that's the
+# case on the machine the credentials came from. Only require it when there is
+# nothing to fall back on.
+if [ -z "$CREDS" ] && ! ls "$MCP_ROOT"/*/.env >/dev/null 2>&1; then
   echo "usage: bash bootstrap.sh /path/to/creds.txt" >&2
   echo "  creds.txt is the credential dump shared by the team lead." >&2
+  echo "  It can be omitted only if the .env files already exist here." >&2
   exit 1
 fi
 
@@ -29,6 +38,9 @@ NODE_MAJOR="$(node -p 'process.versions.node.split(".")[0]')"
 [ "$NODE_MAJOR" -ge 20 ] || { echo "node $NODE_MAJOR too old — need 20+" >&2; exit 1; }
 
 # ── 1. Credentials ───────────────────────────────────────────────────────────
+if [ -z "$CREDS" ]; then
+echo "==> Using existing .env files (no creds.txt given)"
+else
 echo "==> Writing credentials"
 python3 - "$MCP_ROOT" "$CREDS" <<'PY'
 import json, os, sys
@@ -96,6 +108,7 @@ for name, body in sections.items():
 for w in wrote:
     print(f"    wrote {w}")
 PY
+fi
 
 # ── 2. Build ─────────────────────────────────────────────────────────────────
 echo "==> Installing and building"

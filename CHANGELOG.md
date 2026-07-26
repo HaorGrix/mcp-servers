@@ -92,3 +92,11 @@ All notable changes to the consolidated MCP servers workspace will be documented
 - Added `documentation/TEAM-SETUP.md`: build, credential, and MCP registration steps for a fresh machine.
 - Added `documentation/config/mcp.template.json`: portable 10-entry config with `__MCP_ROOT__` placeholder (no secrets).
 - Documented that the sending machine`s Claude Desktop config still points at the pre-move `HaorGrix/MCP/...` path.
+
+## [2026-07-27] — Handoff tooling and repo corrections
+
+- Added `bootstrap.sh`: one-command install (creds, build, config, register, verify). `creds.txt` optional when `.env` files already exist.
+- Added `AGENT-SETUP.md`: clone-to-working guide with failure table and production-access rules.
+- Committed `meta-business-mcp` (13 tools) and `zoho-mail-mcp` (14 tools), previously untracked.
+- README corrected: 6 servers / 161 tools -> 8 servers / 188 tools.
+- Set `META_ALLOW_WRITES=false` in meta-ads and meta-business `.env` (was `true`; could activate campaigns and start real spend).

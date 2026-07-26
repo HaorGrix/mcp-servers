@@ -13,9 +13,14 @@ All six servers speak MCP over **stdio** and are registered in the local Claude 
 | Google Analytics | `google-analytics-mcp/` | GA4 Data + Admin API | 18 | TypeScript |
 | Google Search Console | `google-search-console-mcp/` | GSC + Indexing API | 10 | TypeScript |
 | Meta Ads | `mcp-meta-ads_new/` | Meta Graph API | 12 | JavaScript (ESM) |
+| Meta Business | `meta-business-mcp/` | Meta Graph API (pages, WhatsApp, IG) | 13 | TypeScript |
 | WordPress | `wordpress-mcp/` | WP REST + WooCommerce + Cloudflare | 49 | TypeScript |
+| Zoho Mail | `zoho-mail-mcp/` | Zoho Mail IMAP + SMTP | 14 | TypeScript |
 
-**161 tools total.** Superseded versions live in [`archive/`](archive/) and are not maintained.
+**188 tools across 8 servers.** Superseded versions live in [`archive/`](archive/) and are not maintained.
+
+New machine? See [`AGENT-SETUP.md`](AGENT-SETUP.md) — `bash bootstrap.sh <creds.txt>` does the
+whole install. `dist/` is not committed, so nothing runs until you build.
 
 Full product requirements for each server are in [`documentation/PRD/`](documentation/PRD/).
 
