@@ -86,3 +86,9 @@ All notable changes to the consolidated MCP servers workspace will be documented
 ### Analytics Instrumentation
 - **WhaleTracker.tsx**: Extended from BOFU-only to site-wide tracking. Added rage-click detection, form abandonment tracking (120s timer).
 - **analytics.ts**: Added LinkedIn Insight Tag, Microsoft Clarity custom tags, GA4 Enhanced Conversions data layer, booking intent tracker, exit intent tracker.
+
+## [2026-07-27] — Team handoff docs
+
+- Added `documentation/TEAM-SETUP.md`: build, credential, and MCP registration steps for a fresh machine.
+- Added `documentation/config/mcp.template.json`: portable 10-entry config with `__MCP_ROOT__` placeholder (no secrets).
+- Documented that the sending machine`s Claude Desktop config still points at the pre-move `HaorGrix/MCP/...` path.

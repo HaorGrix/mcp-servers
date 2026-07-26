@@ -1,0 +1,94 @@
+{
+  "mcpServers": {
+    "brevo": {
+      "command": "node",
+      "args": ["__MCP_ROOT__/brevo-mcp/dist/index.js"],
+      "env": {
+        "BREVO_API_KEY": "",
+        "BREVO_ENFORCE_SENDER": "hello@haorgrix.com",
+        "BREVO_AUDIT_LOG": "1"
+      }
+    },
+    "cpanel-fernhillbd": {
+      "command": "node",
+      "args": ["__MCP_ROOT__/cpanel-mcp/dist/index.js"],
+      "env": {
+        "CPANEL_HOST": "fernhillbd.com",
+        "CPANEL_USERNAME": "",
+        "CPANEL_PASSWORD": ""
+      }
+    },
+    "cpanel-fernhilluk": {
+      "command": "node",
+      "args": ["__MCP_ROOT__/cpanel-mcp/dist/index.js"],
+      "env": {
+        "CPANEL_HOST": "fernhillconsulting.co.uk",
+        "CPANEL_USERNAME": "",
+        "CPANEL_PASSWORD": ""
+      }
+    },
+    "google-analytics": {
+      "command": "node",
+      "args": ["__MCP_ROOT__/google-analytics-mcp/dist/index.js"],
+      "env": {
+        "GOOGLE_APPLICATION_CREDENTIALS": "__MCP_ROOT__/google-analytics-mcp/credentials.json",
+        "GA4_PROPERTY_ID": "532268962"
+      }
+    },
+    "google-search-console": {
+      "command": "node",
+      "args": ["__MCP_ROOT__/google-search-console-mcp/dist/index.js"],
+      "env": {
+        "GOOGLE_APPLICATION_CREDENTIALS": "__MCP_ROOT__/google-search-console-mcp/credentials.json",
+        "GSC_SITE_URL": "sc-domain:haorgrix.com"
+      }
+    },
+    "meta-ads": {
+      "command": "node",
+      "args": ["__MCP_ROOT__/mcp-meta-ads_new/index.js"],
+      "env": {
+        "META_ACCESS_TOKEN": "",
+        "META_ALLOW_WRITES": "false"
+      }
+    },
+    "meta-business": {
+      "command": "node",
+      "args": ["__MCP_ROOT__/meta-business-mcp/dist/index.js"],
+      "env": {
+        "META_ACCESS_TOKEN": "",
+        "META_ALLOW_WRITES": "false"
+      }
+    },
+    "wordpress-fernhillbd": {
+      "command": "node",
+      "args": ["__MCP_ROOT__/wordpress-mcp/dist/index.js"],
+      "env": {
+        "WORDPRESS_URL": "https://fernhillbd.com",
+        "WORDPRESS_USERNAME": "musfiqur",
+        "WORDPRESS_APP_PASSWORD": "",
+        "WC_CONSUMER_KEY": "",
+        "WC_CONSUMER_SECRET": ""
+      }
+    },
+    "wordpress-fernhilluk": {
+      "command": "node",
+      "args": ["__MCP_ROOT__/wordpress-mcp/dist/index.js"],
+      "env": {
+        "WORDPRESS_URL": "https://fernhillconsulting.co.uk",
+        "WORDPRESS_USERNAME": "musfiqur",
+        "WORDPRESS_APP_PASSWORD": ""
+      }
+    },
+    "zoho-mail": {
+      "command": "node",
+      "args": ["__MCP_ROOT__/zoho-mail-mcp/dist/index.js"],
+      "env": {
+        "ZOHO_USER": "",
+        "ZOHO_APP_PASSWORD": "",
+        "ZOHO_IMAP_HOST": "zoho.com",
+        "ZOHO_IMAP_PORT": "993",
+        "ZOHO_READ_ONLY": "true"
+      }
+    }
+  }
+}
