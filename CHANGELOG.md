@@ -2,6 +2,20 @@
 
 All notable changes to the consolidated MCP servers workspace will be documented in this file.
 
+## [Unreleased]
+### Security
+- **The compromised Google service-account key is now rotated — closing the open action from
+  [2026-07-22].** Both `google-analytics-mcp` and `google-search-console-mcp` authenticate on a
+  freshly issued key for `search-console-mcp@haorgrix-mcp.iam.gserviceaccount.com`
+  (`private_key_id b6065946…`), verified by a live Google token exchange before anything was
+  removed. The two superseded key ids (`631156c63fa808681f10f3466368aee91335db27`,
+  `5a393106448c92a76ae4c0f5fd6af88ae4a401d6`) were then deleted in Google Cloud IAM. The
+  credential that was purged from git history on 2026-07-22 — and independently harvested in the
+  2026-06-24 server breach — no longer authenticates anywhere.
+- **Known gap, unchanged by the rotation:** both Google servers still share a *single* credential
+  covering GA4 Admin and Search Console. The rotation replaced one shared key with one shared key.
+  Splitting it into two scoped keys is still open and needs an owner ruling.
+
 ## [2026-07-22]
 ### Security
 - **Purged two committed Google service-account private keys from git history**
