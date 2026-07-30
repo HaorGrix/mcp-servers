@@ -13,21 +13,23 @@ export class RefusedError extends Error {
 }
 
 /**
- * Layer 2 of the safety model: the caller must echo back the exact id being
- * destroyed, or its last 6 characters.
+ * Layer 2 of the safety model: the caller must echo back the FULL id being destroyed.
  *
  * A fixed literal like confirm:"DELETE" is passed reflexively by an agent that
  * has not looked at anything. Requiring the id means you cannot confirm without
  * having read the specific resource first.
+ *
+ * An earlier version also accepted the last 6 characters. That shortcut is gone:
+ * list output routinely truncates ids, so a 6-character tail is available to an
+ * agent that never fetched the resource — the exact case this guard exists to
+ * stop — and 6 characters is short enough to collide across a real key set.
  */
 export function requireConfirm(resourceId: string, confirm: string): void {
   const id = resourceId.trim();
-  const given = confirm.trim();
-  const tail = id.slice(-6);
-  if (given !== id && given !== tail) {
+  if (confirm.trim() !== id) {
     throw new RefusedError(
-      `confirm did not match. Pass the exact resource id ("${id}") or its last 6 characters ` +
-        `("${tail}"). Refusing so a destructive call cannot be made without reading the resource first.`,
+      `confirm did not match. Pass the exact, complete resource id ("${id}"). Abbreviations are ` +
+        `not accepted. Refusing so a destructive call cannot be made without reading the resource first.`,
     );
   }
 }

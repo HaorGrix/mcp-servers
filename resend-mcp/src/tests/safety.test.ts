@@ -1,10 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile, rm, stat } from 'node:fs/promises';
+import { readFile, rm, stat, mkdir } from 'node:fs/promises';
 import { loadConfig, redact, blockedIn, isProtectedDomain } from '../config.js';
 import { requireConfirm, RefusedError } from '../guards.js';
 import { writeSecretFile, fingerprintOf } from '../secrets.js';
-import { AuditLog } from '../audit.js';
+import { AuditLog, AuditWriteError } from '../audit.js';
 import { annotateKeys } from '../tools/read.js';
 
 const BASE_ENV = { RESEND_API_KEY: 're_testkey0000000000' } as NodeJS.ProcessEnv;
@@ -41,12 +41,14 @@ test('destructive without writes is refused at boot', () => {
 
 // --- 2. confirm must match --------------------------------------------------
 
-test('confirm must equal the exact key id, or its last 6 characters', () => {
+test('confirm must equal the FULL key id — no abbreviations', () => {
   const keyId = 'b6a3f2c1-9d4e-4a7b-8c2f-1e5d9a0b3c7d';
   assert.throws(() => requireConfirm(keyId, 'confirm'), RefusedError);
   assert.throws(() => requireConfirm(keyId, 'edugrix-2026'), RefusedError, 'a NAME must not confirm an id');
   assert.doesNotThrow(() => requireConfirm(keyId, keyId));
-  assert.doesNotThrow(() => requireConfirm(keyId, '0b3c7d'));
+  // The last-6 shortcut is gone. Resend already cannot show key values, so the
+  // id is the only proof of identity - accepting a fragment of it undercuts that.
+  assert.throws(() => requireConfirm(keyId, '0b3c7d'), RefusedError, 'a 6-char tail must be refused');
 });
 
 // --- 3. no secret in any envelope or log line -------------------------------
@@ -146,4 +148,22 @@ test('keys created before the breach date are flagged suspect', () => {
   assert.ok(rows[0]?.reason?.includes('2026-06-24'));
   assert.equal(rows[1]?.suspect, false, 'post-breach key is clean');
   assert.equal(rows[1]?.reason, undefined);
+});
+
+test('a destructive call fails closed when the audit journal cannot be written', async () => {
+  // A directory can never be appended to — a real write failure, not a mock.
+  const unwritable = 'audit-unwritable-dir';
+  await rm(unwritable, { recursive: true, force: true });
+  await mkdir(unwritable, { recursive: true });
+  const audit = new AuditLog(unwritable);
+  const entry = {
+    ts: new Date().toISOString(),
+    tool: 'resend_delete_api_key',
+    args: { keyId: 'k-1' },
+    resourceId: 'k-1',
+    outcome: 'pending' as const,
+  };
+  await assert.rejects(() => audit.recordCritical(entry), AuditWriteError);
+  await assert.doesNotReject(() => audit.record(entry));
+  await rm(unwritable, { recursive: true, force: true });
 });

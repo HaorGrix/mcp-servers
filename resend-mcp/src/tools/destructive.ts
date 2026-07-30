@@ -52,6 +52,14 @@ export function registerDestructiveTools(
         throw err;
       }
 
+      // Fail closed: intent durably journalled before anything is destroyed.
+      await audit.recordCritical({
+        ts: new Date().toISOString(),
+        tool: 'resend_delete_api_key',
+        args: { keyId },
+        resourceId: keyId,
+        outcome: 'pending',
+      });
       const { status } = await client.request<unknown>('DELETE', `/api-keys/${keyId}`);
       await audit.record({
         ts: new Date().toISOString(),
@@ -113,6 +121,14 @@ export function registerDestructiveTools(
         throw err;
       }
 
+      // Fail closed: intent durably journalled before anything is destroyed.
+      await audit.recordCritical({
+        ts: new Date().toISOString(),
+        tool: 'resend_delete_domain',
+        args: { domainId, domainName },
+        resourceId: domainId,
+        outcome: 'pending',
+      });
       const { status } = await client.request<unknown>('DELETE', `/domains/${domainId}`);
       await audit.record({
         ts: new Date().toISOString(),
@@ -147,6 +163,14 @@ export function registerDestructiveTools(
         });
         throw err;
       }
+      // Fail closed: intent durably journalled before anything is destroyed.
+      await audit.recordCritical({
+        ts: new Date().toISOString(),
+        tool: 'resend_delete_audience',
+        args: { audienceId },
+        resourceId: audienceId,
+        outcome: 'pending',
+      });
       const { status } = await client.request<unknown>('DELETE', `/audiences/${audienceId}`);
       await audit.record({
         ts: new Date().toISOString(),
