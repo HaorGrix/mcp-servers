@@ -2,6 +2,19 @@
 
 All notable changes to the consolidated MCP servers workspace will be documented in this file.
 
+## [2026-07-31]
+### Added
+- **`namecheap-mcp`** — MCP server for the Namecheap API: domains, advanced DNS, nameserver
+  delegation, email forwarding mode preservation, and SPF/DKIM/DMARC management, plus live
+  resolver verification that needs no credentials. 17 tools, read-only by default.
+  Every write reads the current zone and rewrites it in full, because Namecheap's `setHosts`
+  replaces the entire zone rather than patching it.
+
+## [2026-07-27]
+### Changed
+- Cursor MCP config (`~/.cursor/mcp.json`, `HaorGrix/.cursor/mcp.json`) now references
+  `mcp-meta-ads_new/` and `brevo-mcp/` in this repo via `envFile` (no inline secrets).
+
 ## [2026-07-22]
 ### Security
 - **Purged two committed Google service-account private keys from git history**
