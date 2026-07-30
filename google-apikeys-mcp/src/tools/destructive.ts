@@ -77,6 +77,15 @@ export function registerDestructiveTools(
         throw err;
       }
 
+      // Fail closed: the intent must be durably journalled before anything is
+      // destroyed. An unlogged delete is not recoverable; a refused one is.
+      await audit.recordCritical({
+        ts: new Date().toISOString(),
+        tool: 'apikeys_delete',
+        args: { keyId },
+        resourceId: keyId,
+        outcome: 'pending',
+      });
       const { status } = await client.request<unknown>('DELETE', url);
       await audit.record({
         ts: new Date().toISOString(),

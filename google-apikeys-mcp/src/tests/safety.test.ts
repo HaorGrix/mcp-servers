@@ -1,10 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile, rm, stat } from 'node:fs/promises';
+import { readFile, rm, stat, mkdir } from 'node:fs/promises';
 import { loadConfig, redact, isProtected } from '../config.js';
 import { requireConfirm, RefusedError } from '../guards.js';
 import { writeSecretFile, fingerprintOf } from '../secrets.js';
-import { AuditLog } from '../audit.js';
+import { AuditLog, AuditWriteError } from '../audit.js';
 import { summarise, keyIdOf } from '../tools/read.js';
 
 const BASE_ENV = { GCP_PROJECT_ID: 'haorgrix-mcp' } as NodeJS.ProcessEnv;
@@ -42,13 +42,15 @@ test('destructive without writes is refused at boot', () => {
 
 // --- 2. confirm must match --------------------------------------------------
 
-test('confirm must equal the exact key id, or its last 6 characters', () => {
+test('confirm must equal the FULL key id — no abbreviations', () => {
   const keyId = '6f8a1c2e-4b7d-4e39-9a12-3c5d7e9f0a1b';
   assert.throws(() => requireConfirm(keyId, 'confirm'), RefusedError);
   assert.throws(() => requireConfirm(keyId, 'DELETE'), RefusedError);
   assert.throws(() => requireConfirm(keyId, '6f8a1c2e-4b7d-4e39-9a12-3c5d7e9f0a1c'), RefusedError);
   assert.doesNotThrow(() => requireConfirm(keyId, keyId));
-  assert.doesNotThrow(() => requireConfirm(keyId, '9f0a1b'));
+  // The last-6 shortcut is gone: a truncated id in list output would otherwise
+  // let an agent destroy a key it never fetched.
+  assert.throws(() => requireConfirm(keyId, '9f0a1b'), RefusedError, 'a 6-char tail must be refused');
 });
 
 test('protected key ids are refused regardless of flags', () => {
@@ -130,4 +132,22 @@ test('summarise flags an unrestricted key rather than reporting it silently', ()
 test('keyIdOf extracts the id from a full resource name', () => {
   assert.equal(keyIdOf('projects/haorgrix-mcp/locations/global/keys/xyz-789'), 'xyz-789');
   assert.equal(keyIdOf('xyz-789'), 'xyz-789');
+});
+
+test('a destructive call fails closed when the audit journal cannot be written', async () => {
+  // A directory can never be appended to — a real write failure, not a mock.
+  const unwritable = 'audit-unwritable-dir';
+  await rm(unwritable, { recursive: true, force: true });
+  await mkdir(unwritable, { recursive: true });
+  const audit = new AuditLog(unwritable);
+  const entry = {
+    ts: new Date().toISOString(),
+    tool: 'apikeys_delete',
+    args: { keyId: 'abc-123' },
+    resourceId: 'abc-123',
+    outcome: 'pending' as const,
+  };
+  await assert.rejects(() => audit.recordCritical(entry), AuditWriteError);
+  await assert.doesNotReject(() => audit.record(entry));
+  await rm(unwritable, { recursive: true, force: true });
 });
