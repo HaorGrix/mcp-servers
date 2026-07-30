@@ -27,3 +27,7 @@ audit_results.json
 # OS/System files
 .DS_Store
 Thumbs.db
+
+# gcp-iam-mcp audit journal — local only, never shipped off-box
+audit.jsonl
+audit.test.jsonl
