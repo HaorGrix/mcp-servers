@@ -1,10 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile, rm, stat } from 'node:fs/promises';
+import { readFile, rm, stat, mkdir } from 'node:fs/promises';
 import { loadConfig, redact, isProtected } from '../config.js';
 import { requireConfirm, RefusedError } from '../guards.js';
 import { writeSecretFile, fingerprintOf } from '../secrets.js';
-import { AuditLog } from '../audit.js';
+import { AuditLog, AuditWriteError } from '../audit.js';
 import { summariseKey } from '../tools/index.js';
 
 const BASE_ENV = { OPENROUTER_PROVISIONING_KEY: 'sk-or-prov-test000000' } as NodeJS.ProcessEnv;
@@ -45,12 +45,14 @@ test('a missing provisioning key fails at boot with a message that names the rig
 
 // --- 2. confirm must match --------------------------------------------------
 
-test('confirm must equal the exact key hash, or its last 6 characters', () => {
+test('confirm must equal the FULL key hash — no abbreviations', () => {
   const hash = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4';
   assert.throws(() => requireConfirm(hash, 'confirm'), RefusedError);
   assert.throws(() => requireConfirm(hash, 'reiva-2026'), RefusedError, 'a name must not confirm a hash');
   assert.doesNotThrow(() => requireConfirm(hash, hash));
-  assert.doesNotThrow(() => requireConfirm(hash, 'ae41e4'));
+  // The last-6 shortcut is gone: hex hashes make a 6-char collision entirely
+  // plausible across a real key set.
+  assert.throws(() => requireConfirm(hash, 'ae41e4'), RefusedError, 'a 6-char tail must be refused');
 });
 
 test('protected key hashes are refused regardless of flags', () => {
@@ -124,4 +126,22 @@ test('summariseKey flags an uncapped key rather than reporting it silently', () 
 test('remaining never goes negative when usage overshoots the limit', () => {
   const over = summariseKey({ hash: 'h3', name: 'over', limit: 10, usage: 25 });
   assert.equal(over.remaining, 0);
+});
+
+test('a destructive call fails closed when the audit journal cannot be written', async () => {
+  // A directory can never be appended to — a real write failure, not a mock.
+  const unwritable = 'audit-unwritable-dir';
+  await rm(unwritable, { recursive: true, force: true });
+  await mkdir(unwritable, { recursive: true });
+  const audit = new AuditLog(unwritable);
+  const entry = {
+    ts: new Date().toISOString(),
+    tool: 'openrouter_delete_key',
+    args: { keyHash: 'h-1' },
+    resourceId: 'h-1',
+    outcome: 'pending' as const,
+  };
+  await assert.rejects(() => audit.recordCritical(entry), AuditWriteError);
+  await assert.doesNotReject(() => audit.record(entry));
+  await rm(unwritable, { recursive: true, force: true });
 });

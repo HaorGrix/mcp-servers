@@ -279,6 +279,14 @@ export function registerDestructiveTools(
         throw err;
       }
 
+      // Fail closed: intent durably journalled before anything is destroyed.
+      await audit.recordCritical({
+        ts: new Date().toISOString(),
+        tool: 'openrouter_delete_key',
+        args: { keyHash },
+        resourceId: keyHash,
+        outcome: 'pending',
+      });
       const { status } = await client.request<unknown>('DELETE', `/keys/${keyHash}`);
       await audit.record({
         ts: new Date().toISOString(),
