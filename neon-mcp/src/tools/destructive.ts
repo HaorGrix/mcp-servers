@@ -81,6 +81,14 @@ export function registerDestructiveTools(
         throw err;
       }
 
+      // Fail closed: intent durably journalled before anything is destroyed.
+      await audit.recordCritical({
+        ts: new Date().toISOString(),
+        tool: 'neon_reset_role_password',
+        args: { projectId, branchId, roleName },
+        resourceId: roleName,
+        outcome: 'pending',
+      });
       const { data, status } = await client.request<{ role?: { password?: string } }>(
         'POST',
         `/projects/${projectId}/branches/${branchId}/roles/${encodeURIComponent(roleName)}/reset_password`,
@@ -148,6 +156,14 @@ export function registerDestructiveTools(
         throw err;
       }
 
+      // Fail closed: intent durably journalled before anything is destroyed.
+      await audit.recordCritical({
+        ts: new Date().toISOString(),
+        tool: 'neon_delete_project',
+        args: { projectId },
+        resourceId: projectId,
+        outcome: 'pending',
+      });
       const { status } = await client.request<unknown>('DELETE', `/projects/${projectId}`);
       await audit.record({
         ts: new Date().toISOString(),
@@ -191,6 +207,14 @@ export function registerDestructiveTools(
         throw err;
       }
 
+      // Fail closed: intent durably journalled before anything is destroyed.
+      await audit.recordCritical({
+        ts: new Date().toISOString(),
+        tool: 'neon_delete_branch',
+        args: { projectId, branchId },
+        resourceId: branchId,
+        outcome: 'pending',
+      });
       const { status } = await client.request<unknown>(
         'DELETE',
         `/projects/${projectId}/branches/${branchId}`,

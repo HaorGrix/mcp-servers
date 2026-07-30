@@ -1,10 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile, rm, stat } from 'node:fs/promises';
+import { readFile, rm, stat, mkdir } from 'node:fs/promises';
 import { loadConfig, redact, isProtected } from '../config.js';
 import { requireConfirm, RefusedError } from '../guards.js';
 import { writeSecretFile, fingerprintOf } from '../secrets.js';
-import { AuditLog } from '../audit.js';
+import { AuditLog, AuditWriteError } from '../audit.js';
 
 const BASE_ENV = { NEON_API_KEY: 'napi_testkey000000000000000' } as NodeJS.ProcessEnv;
 
@@ -41,13 +41,15 @@ test('destructive without writes is refused at boot', () => {
 
 // --- 2. confirm must match --------------------------------------------------
 
-test('confirm must equal the exact resource id, or its last 6 characters', () => {
+test('confirm must equal the FULL resource id — no abbreviations', () => {
   const projectId = 'ep-shy-bread-am1akxy2';
   assert.throws(() => requireConfirm(projectId, 'confirm'), RefusedError);
   assert.throws(() => requireConfirm(projectId, 'DELETE'), RefusedError);
   assert.throws(() => requireConfirm(projectId, 'ep-shy-bread-am1akxy3'), RefusedError);
   assert.doesNotThrow(() => requireConfirm(projectId, projectId));
-  assert.doesNotThrow(() => requireConfirm(projectId, '1akxy2'));
+  // The last-6 shortcut is gone: a truncated id in list output would otherwise
+  // let an agent destroy a project it never fetched.
+  assert.throws(() => requireConfirm(projectId, '1akxy2'), RefusedError, 'a 6-char tail must be refused');
 });
 
 test('protected projects are refused regardless of flags', () => {
@@ -110,4 +112,22 @@ test('the audit journal never persists a connection URI or password', async () =
   assert.ok(written.includes('neondb_owner'), 'the role name is still recorded');
 
   await rm(path, { force: true });
+});
+
+test('a destructive call fails closed when the audit journal cannot be written', async () => {
+  // A directory can never be appended to — a real write failure, not a mock.
+  const unwritable = 'audit-unwritable-dir';
+  await rm(unwritable, { recursive: true, force: true });
+  await mkdir(unwritable, { recursive: true });
+  const audit = new AuditLog(unwritable);
+  const entry = {
+    ts: new Date().toISOString(),
+    tool: 'neon_reset_role_password',
+    args: { roleName: 'neondb_owner' },
+    resourceId: 'neondb_owner',
+    outcome: 'pending' as const,
+  };
+  await assert.rejects(() => audit.recordCritical(entry), AuditWriteError);
+  await assert.doesNotReject(() => audit.record(entry));
+  await rm(unwritable, { recursive: true, force: true });
 });
