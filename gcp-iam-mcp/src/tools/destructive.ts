@@ -65,6 +65,15 @@ export function registerDestructiveTools(
         });
         throw err;
       }
+      // Fail closed: the intent must be durably journalled before anything is
+      // destroyed. An unlogged delete is not recoverable; a refused one is.
+      await audit.recordCritical({
+        ts: new Date().toISOString(),
+        tool: 'gcp_delete_sa_key',
+        args: { email, keyId },
+        resourceId: keyId,
+        outcome: 'pending',
+      });
       const { status } = await client.request<unknown>('DELETE', url);
       await audit.record({
         ts: new Date().toISOString(),
@@ -124,6 +133,13 @@ export function registerDestructiveTools(
         });
         throw err;
       }
+      await audit.recordCritical({
+        ts: new Date().toISOString(),
+        tool: 'gcp_delete_service_account',
+        args: { email },
+        resourceId: email,
+        outcome: 'pending',
+      });
       const { status } = await client.request<unknown>('DELETE', url);
       await audit.record({
         ts: new Date().toISOString(),
@@ -167,6 +183,13 @@ export function registerDestructiveTools(
         });
         throw err;
       }
+      await audit.recordCritical({
+        ts: new Date().toISOString(),
+        tool: 'gcp_disable_service',
+        args: { service },
+        resourceId: service,
+        outcome: 'pending',
+      });
       const { status } = await client.request<unknown>('POST', `${url}:disable`, {
         disableDependentServices: false,
       });

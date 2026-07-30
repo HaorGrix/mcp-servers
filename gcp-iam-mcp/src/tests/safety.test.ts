@@ -2,9 +2,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { loadConfig, redact, isProtected } from '../config.js';
 import { requireConfirm, requireNotProtected, RefusedError } from '../guards.js';
-import { AuditLog } from '../audit.js';
+import { AuditLog, AuditWriteError } from '../audit.js';
 import { writeSecretFile, fingerprintOf } from '../secrets.js';
-import { readFile, rm, stat } from 'node:fs/promises';
+import { readFile, rm, stat, mkdir } from 'node:fs/promises';
 
 const BASE_ENV = { GCP_PROJECT_ID: 'haorgrix-mcp' } as NodeJS.ProcessEnv;
 
@@ -50,7 +50,7 @@ test('enabling destructive without writes is refused at boot, not at call time',
 // 2. A destructive call is refused when the confirm id does not match.
 // ---------------------------------------------------------------------------
 
-test('confirm must equal the exact resource id, or its last 6 characters', () => {
+test('confirm must equal the FULL resource id — no abbreviations', () => {
   const keyId = '5a393106448c92a76ae4c0f5fd6af88ae4a401d6';
 
   assert.throws(() => requireConfirm(keyId, 'confirm'), RefusedError, 'a literal must not pass');
@@ -62,8 +62,39 @@ test('confirm must equal the exact resource id, or its last 6 characters', () =>
     'a DIFFERENT real key id must not pass — this is the two-keys-on-one-account case',
   );
 
+  // The last-6 shortcut is deliberately gone. List output truncates ids, so a
+  // tail is available to an agent that never fetched the resource — the exact
+  // case this guard exists to stop — and 6 chars can collide across a key set.
+  assert.throws(() => requireConfirm(keyId, 'a401d6'), RefusedError, 'a 6-char tail must be refused');
+  assert.throws(() => requireConfirm(keyId, keyId.slice(0, -1)), RefusedError, 'one char short fails');
+
   assert.doesNotThrow(() => requireConfirm(keyId, keyId));
-  assert.doesNotThrow(() => requireConfirm(keyId, 'a401d6'), 'last 6 chars are accepted');
+  assert.doesNotThrow(() => requireConfirm(keyId, `  ${keyId}  `), 'surrounding whitespace is trimmed');
+});
+
+test('a destructive call fails closed when the audit journal cannot be written', async () => {
+  // A directory can never be appended to, so this is a real write failure
+  // rather than a mocked one.
+  const unwritable = 'audit-unwritable-dir';
+  await rm(unwritable, { recursive: true, force: true });
+  await mkdir(unwritable, { recursive: true });
+  const audit = new AuditLog(unwritable);
+
+  const entry = {
+    ts: new Date().toISOString(),
+    tool: 'gcp_delete_sa_key',
+    args: { keyId: 'abc123' },
+    resourceId: 'abc123',
+    outcome: 'pending' as const,
+  };
+
+  // Destructive path: must refuse rather than proceed unlogged.
+  await assert.rejects(() => audit.recordCritical(entry), AuditWriteError);
+
+  // Read/write path: must tolerate the same failure and carry on.
+  await assert.doesNotReject(() => audit.record(entry));
+
+  await rm(unwritable, { recursive: true, force: true });
 });
 
 test('protected service accounts are refused regardless of flags', () => {
