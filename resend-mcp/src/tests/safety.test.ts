@@ -5,6 +5,10 @@ import { loadConfig, redact, blockedIn, isProtectedDomain } from '../config.js';
 import { requireConfirm, RefusedError } from '../guards.js';
 import { writeSecretFile, fingerprintOf } from '../secrets.js';
 import { AuditLog, AuditWriteError } from '../audit.js';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+
+const execFileAsync = promisify(execFile);
 import { annotateKeys } from '../tools/read.js';
 
 const BASE_ENV = { RESEND_API_KEY: 're_testkey0000000000' } as NodeJS.ProcessEnv;
@@ -62,8 +66,16 @@ test('a created key goes to a 0600 file and never into the response', async () =
   const handle = await writeSecretFile(path, FAKE_TOKEN, 'test key');
   assert.ok(!JSON.stringify(handle).includes(FAKE_TOKEN));
   assert.equal(await readFile(handle.path, 'utf8'), FAKE_TOKEN);
-  if (process.platform !== 'win32') {
+  if (process.platform === 'win32') {
+    // POSIX mode is advisory on Windows: chmod(0o600) leaves the inherited ACL
+    // intact, so assert on the ACL that actually governs.
+    const { stdout } = await execFileAsync('icacls', [handle.path], { windowsHide: true });
+    assert.ok(!/Authenticated Users/i.test(stdout), 'Authenticated Users must not retain access');
+    assert.ok(!/BUILTIN.Users/i.test(stdout), 'BUILTIN\Users must not retain access');
+    assert.ok(handle.protection.includes('NTFS ACL'));
+  } else {
     assert.equal((await stat(handle.path)).mode & 0o777, 0o600);
+    assert.equal(handle.protection, 'mode 0600');
   }
   assert.equal(fingerprintOf(FAKE_TOKEN), handle.fingerprint);
 
