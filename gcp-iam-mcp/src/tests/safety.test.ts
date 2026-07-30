@@ -5,6 +5,10 @@ import { requireConfirm, requireNotProtected, RefusedError } from '../guards.js'
 import { AuditLog, AuditWriteError } from '../audit.js';
 import { writeSecretFile, fingerprintOf } from '../secrets.js';
 import { readFile, rm, stat, mkdir } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+
+const execFileAsync = promisify(execFile);
 
 const BASE_ENV = { GCP_PROJECT_ID: 'haorgrix-mcp' } as NodeJS.ProcessEnv;
 
@@ -138,9 +142,22 @@ test('a created credential goes to a 0600 file and never into the response', asy
   // The file must exist, hold the real value, and be owner-only.
   const onDisk = await readFile(handle.path, 'utf8');
   assert.equal(onDisk, FAKE_PRIVATE_KEY, 'the file holds the actual credential');
-  if (process.platform !== 'win32') {
+
+  if (process.platform === 'win32') {
+    // POSIX mode is advisory on Windows — chmod(0o600) leaves the inherited
+    // ACL intact, so a key written here was readable by every local account.
+    // Assert on the ACL that actually governs, not the mode bits that do not.
+    const { stdout } = await execFileAsync('icacls', [handle.path], { windowsHide: true });
+    assert.ok(
+      !/Authenticated Users/i.test(stdout),
+      `Authenticated Users must not retain access:\n${stdout}`,
+    );
+    assert.ok(!/BUILTIN\\Users/i.test(stdout), `BUILTIN\\Users must not retain access:\n${stdout}`);
+    assert.ok(handle.protection.includes('NTFS ACL'), 'the handle must report real protection');
+  } else {
     const mode = (await stat(handle.path)).mode & 0o777;
     assert.equal(mode, 0o600, `expected 0600, got ${mode.toString(8)}`);
+    assert.equal(handle.protection, 'mode 0600');
   }
 
   // Same input, same fingerprint — so a file can be matched to a console entry.
