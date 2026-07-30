@@ -4,6 +4,7 @@ import type { GcpClient } from '../client.js';
 import type { Config } from '../config.js';
 import type { AuditLog } from '../audit.js';
 import { ok, dryRun } from '../guards.js';
+import { writeSecretFile } from '../secrets.js';
 
 const IAM = 'https://iam.googleapis.com/v1';
 const SU = 'https://serviceusage.googleapis.com/v1';
@@ -107,16 +108,20 @@ export function registerWriteTools(
 
   server.tool(
     'gcp_create_sa_key',
-    'Create a new JSON key for a service account. Google returns the private key ONCE ' +
-      'and it can never be re-read. By default this tool returns only the new key id, ' +
-      'and the material itself requires GCP_ALLOW_SECRET_READ=true — because anything ' +
-      'returned here lands in the model context and can end up in a transcript or a paste. ' +
+    'Create a new JSON key for a service account. Google returns the private key ONCE and ' +
+      'it can never be re-read, so the key material is written to a 0600 file and this tool ' +
+      'returns the FILE PATH plus a fingerprint — never the value. A tool result lands in the ' +
+      'conversation transcript and stays there, which is how a live credential leaks. ' +
       'Always create and verify the new key BEFORE deleting an old one.',
     {
       email: z.string().describe('Full service account email.'),
+      out_path: z
+        .string()
+        .optional()
+        .describe('Where to write the key JSON. Defaults to GCP_SECRET_OUT_DIR/<keyId>.json'),
       dry_run: z.boolean().optional().default(false),
     },
-    async ({ email, dry_run }) => {
+    async ({ email, out_path, dry_run }) => {
       const base = `${IAM}/projects/${config.projectId}/serviceAccounts/${encodeURIComponent(email)}`;
       if (dry_run) {
         return dryRun(
@@ -129,33 +134,34 @@ export function registerWriteTools(
         `${base}/keys`,
         { privateKeyType: 'TYPE_GOOGLE_CREDENTIALS_FILE', keyAlgorithm: 'KEY_ALG_RSA_2048' },
       );
-      const keyId = data.name.split('/').pop();
+      const keyId = data.name.split('/').pop() ?? 'unknown';
+      // Google base64-encodes the credentials file in privateKeyData.
+      const material = data.privateKeyData
+        ? Buffer.from(data.privateKeyData, 'base64').toString('utf8')
+        : '';
+      const target = out_path ?? `${config.secretOutDir}/${keyId}.json`;
+      const handle = await writeSecretFile(target, material, `Service-account key ${keyId}`);
+
       await audit.record({
         ts: new Date().toISOString(),
         tool: 'gcp_create_sa_key',
-        args: { email, privateKeyData: data.privateKeyData ?? '' },
+        // Never the material — only where it went and what it hashes to.
+        args: { email, out_path: handle.path, fingerprint: handle.fingerprint },
         resourceId: keyId,
         outcome: 'ok',
         status,
       });
-      if (!config.allowSecretRead) {
-        return ok({
-          keyId,
-          email,
-          privateKeyData: '[withheld]',
-          note:
-            'Key created. The material is withheld because GCP_ALLOW_SECRET_READ is false. ' +
-            'Google cannot re-issue it later, so enable the flag and re-create if the value ' +
-            'is genuinely needed here rather than downloaded from the console.',
-        });
-      }
+
       return ok({
         keyId,
         email,
-        privateKeyData: data.privateKeyData,
-        warning:
-          'This response contains a live private key. It is now in the model context — treat ' +
-          'it as exposed if this transcript is shared, and never paste it into Slack.',
+        path: handle.path,
+        fingerprint: handle.fingerprint,
+        bytes: handle.bytes,
+        note: handle.note,
+        nextStep:
+          'Verify the new key works BEFORE deleting any old one. Then delete this file — ' +
+          'a 0600 file is better than a transcript, but it is still a private key on disk.',
       });
     },
   );

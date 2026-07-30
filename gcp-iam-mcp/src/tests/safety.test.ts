@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { loadConfig, redact, isProtected } from '../config.js';
 import { requireConfirm, requireNotProtected, RefusedError } from '../guards.js';
 import { AuditLog } from '../audit.js';
-import { readFile, rm } from 'node:fs/promises';
+import { writeSecretFile, fingerprintOf } from '../secrets.js';
+import { readFile, rm, stat } from 'node:fs/promises';
 
 const BASE_ENV = { GCP_PROJECT_ID: 'haorgrix-mcp' } as NodeJS.ProcessEnv;
 
@@ -89,6 +90,32 @@ test('redact removes private keys, API keys and bearer tokens', () => {
   assert.ok(!redact(`key=${FAKE_API_KEY}`).includes(FAKE_API_KEY));
   assert.ok(!redact('Authorization: Bearer ya29.abcdefghijklmnopqrstuvwxyz').includes('ya29.abcdef'));
   assert.equal(redact('nothing sensitive here'), 'nothing sensitive here');
+});
+
+test('a created credential goes to a 0600 file and never into the response', async () => {
+  const path = 'secrets-test/key.json';
+  await rm('secrets-test', { recursive: true, force: true });
+
+  const handle = await writeSecretFile(path, FAKE_PRIVATE_KEY, 'test key');
+
+  // The handle is what a tool returns. It must not carry the value.
+  const serialised = JSON.stringify(handle);
+  assert.ok(!serialised.includes('MIIEvQIBADANBgkq'), 'the response must not contain key material');
+  assert.equal(handle.fingerprint.length, 12, 'fingerprint identifies, it does not authenticate');
+  assert.ok(!FAKE_PRIVATE_KEY.includes(handle.fingerprint), 'fingerprint is a hash, not a substring');
+
+  // The file must exist, hold the real value, and be owner-only.
+  const onDisk = await readFile(handle.path, 'utf8');
+  assert.equal(onDisk, FAKE_PRIVATE_KEY, 'the file holds the actual credential');
+  if (process.platform !== 'win32') {
+    const mode = (await stat(handle.path)).mode & 0o777;
+    assert.equal(mode, 0o600, `expected 0600, got ${mode.toString(8)}`);
+  }
+
+  // Same input, same fingerprint — so a file can be matched to a console entry.
+  assert.equal(fingerprintOf(FAKE_PRIVATE_KEY), handle.fingerprint);
+
+  await rm('secrets-test', { recursive: true, force: true });
 });
 
 test('the audit journal never persists key material', async () => {

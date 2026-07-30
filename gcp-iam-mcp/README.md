@@ -26,7 +26,8 @@ Two independent layers. Neither is sufficient alone.
 | — | — | 7 read tools, always |
 | `GCP_ALLOW_WRITES` | `false` | create / enable / disable (4 more) |
 | `GCP_ALLOW_DESTRUCTIVE` | `false` | the delete tools (3 more). Requires `GCP_ALLOW_WRITES`; the server refuses to boot otherwise |
-| `GCP_ALLOW_SECRET_READ` | `false` | lets `gcp_create_sa_key` return key material rather than withholding it |
+
+There is deliberately **no flag that makes a tool return a secret value** — see below.
 
 **Layer 2 — per-call guards.** Even with every flag on:
 
@@ -44,9 +45,14 @@ Two independent layers. Neither is sufficient alone.
   network sink — shipping a trail of credential operations off-box would recreate the
   exfiltration path this is defending against.
 
-**Secrets.** `gcp_create_sa_key` withholds key material by default. Google issues it once and can
-never re-read it, so the flag exists — but anything it returns lands in the model context and can
-end up in a transcript or a paste. Prefer downloading from the console.
+**Secrets never enter a response.** `gcp_create_sa_key` writes the key JSON to a `0600` file and
+returns the **path plus a 12-char fingerprint** — enough to match the file against the console,
+not enough to authenticate. A tool result is not ephemeral: it lands in the conversation
+transcript and stays there. This is not hypothetical — a Hetzner read-write token was pasted into
+a chat window on 2026-07-29 and had to be rotated for exactly this reason.
+
+Delete the file once the credential is where it belongs. A `0600` file beats a transcript, but it
+is still a private key on disk.
 
 ## Setup
 

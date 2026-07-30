@@ -8,11 +8,13 @@ export interface Config {
   /** Layer 1, tier 2: destructive tools are omitted unless this is on as well. */
   allowDestructive: boolean;
   /**
-   * Layer 1, tier 3: tools that RETURN a live credential. Separate from writes
-   * because reading a secret is not a harmless read — whatever these return lands
-   * in the model context and can reach a transcript or a paste.
+   * Where credential material is written, 0600, when a tool produces some.
+   *
+   * There is deliberately no flag that makes a tool RETURN a secret value: a tool
+   * result lands in the conversation transcript and stays there. The value goes
+   * to a file, the response carries the path and a fingerprint.
    */
-  allowSecretRead: boolean;
+  secretOutDir: string;
   /**
    * Resource ids that destructive tools refuse outright, whatever the flags say.
    * Flags protect against the wrong mode; this protects against the right mode
@@ -104,7 +106,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     ...(credentialsPath ? { credentialsPath } : {}),
     allowWrites,
     allowDestructive,
-    allowSecretRead: boolFromEnv(env, 'GCP_ALLOW_SECRET_READ', false),
+    secretOutDir: (env['GCP_SECRET_OUT_DIR']?.trim() || './secrets').replace(/\/$/, ''),
     protectedServiceAccounts: listFromEnv(env, 'GCP_PROTECTED_SERVICE_ACCOUNTS', DEFAULT_PROTECTED),
     auditLogPath: env['GCP_AUDIT_LOG']?.trim() || 'audit.jsonl',
     timeoutMs: intFromEnv(env, 'GCP_TIMEOUT_MS', 30_000, 1_000, 120_000),

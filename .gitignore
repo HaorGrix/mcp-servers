@@ -31,3 +31,5 @@ Thumbs.db
 # gcp-iam-mcp audit journal — local only, never shipped off-box
 audit.jsonl
 audit.test.jsonl
+secrets/
+secrets-test/

@@ -71,9 +71,8 @@ async function main(): Promise<void> {
     : config.allowWrites
       ? 'READ + WRITE'
       : 'READ-ONLY';
-  const secrets = config.allowSecretRead ? 'secret-read ENABLED' : 'secret-read off';
   console.error(
-    `[gcp-iam-mcp] ${mode}, ${secrets}, ${toolNames.length} tools, ` +
+    `[gcp-iam-mcp] ${mode}, secrets -> file only (${config.secretOutDir}), ${toolNames.length} tools, ` +
       `project ${config.projectId}, as ${identity}, ` +
       `${config.protectedServiceAccounts.length} protected id(s), audit -> ${config.auditLogPath}`,
   );
