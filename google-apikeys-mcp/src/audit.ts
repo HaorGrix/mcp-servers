@@ -46,13 +46,46 @@ export class AuditLog {
   }
 }
 
-/** Field names whose values are dropped outright rather than pattern-matched. */
-const SECRET_KEYS = new Set(['privateKeyData', 'private_key', 'privateKey', 'keyString', 'token']);
+/**
+ * Field names whose values are dropped outright rather than pattern-matched.
+ *
+ * Pattern matching alone is not enough: a bare password has no recognisable
+ * shape, so `{ password: "hunter2" }` survives every regex. This list is the
+ * backstop, and it is deliberately broad — a false positive costs one redacted
+ * field in a log, a false negative costs a live credential.
+ */
+const SECRET_KEYS = new Set([
+  'privateKeyData',
+  'private_key',
+  'privateKey',
+  'keyString',
+  'key_string',
+  'token',
+  'accessToken',
+  'access_token',
+  'refreshToken',
+  'refresh_token',
+  'password',
+  'passwd',
+  'secret',
+  'clientSecret',
+  'client_secret',
+  'apiKey',
+  'api_key',
+  'uri',
+  'connectionUri',
+  'connection_uri',
+  'connectionString',
+  'connection_string',
+  'dsn',
+  'credentials',
+  'authorization',
+]);
 
 function redactArgs(args: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(args)) {
-    if (SECRET_KEYS.has(key)) {
+    if (SECRET_KEYS.has(key.toLowerCase()) || SECRET_KEYS.has(key)) {
       out[key] = '[REDACTED]';
     } else if (typeof value === 'string') {
       out[key] = redact(value);
