@@ -27,3 +27,11 @@ audit_results.json
 # OS/System files
 .DS_Store
 Thumbs.db
+
+# Audit journals are local-only, never committed
+audit.jsonl
+audit.test.jsonl
+secrets/
+secrets-test/
+secrets-probe/
+audit-unwritable-dir/
