@@ -95,13 +95,25 @@ export function registerWriteTools(
         body['restrictions'] = { apiTargets: api_targets.map((service) => ({ service })) };
       }
 
-      const { data: op, status } = await client.request<Operation>('POST', `${base}/keys`, body);
+      const { data: started, status } = await client.request<Operation>('POST', `${base}/keys`, body);
+      // The v2 API returns a long-running Operation, NOT the finished key. It is
+      // not done on the first response, so reading op.response immediately gives
+      // undefined — which previously produced keyId "unknown" and an EMPTY key
+      // file reported as a success. Found by a live run on 2026-07-31; the
+      // giveaway was fingerprint e3b0c44298fc, the SHA-256 of the empty string.
+      const op = await awaitOperation(client, started);
       if (op.error) {
         throw new Error(`key creation failed: ${op.error.message ?? 'unknown'}`);
       }
       const keyName = op.response?.name ?? '';
-      const keyId = keyName ? keyIdOf(keyName) : 'unknown';
+      const keyId = keyName ? keyIdOf(keyName) : '';
       const keyString = op.response?.keyString ?? '';
+      if (!keyId || !keyString) {
+        throw new Error(
+          'Key creation returned no key material, so nothing was written. The key may still ' +
+            'exist in the project — run apikeys_list before retrying so a duplicate is not created.',
+        );
+      }
 
       const target = out_path ?? `${config.secretOutDir}/${keyId}.key`;
       const handle = await writeSecretFile(target, keyString, `API key ${keyId}`);
@@ -173,4 +185,38 @@ export function registerWriteTools(
       return ok(summarise(data));
     },
   );
+}
+
+/**
+ * Polls a long-running Operation to completion.
+ *
+ * The API Keys v2 create endpoint returns immediately with `done: false`; the
+ * key material only appears once the operation finishes. Without this the tool
+ * silently wrote an empty file and called it a success.
+ */
+async function awaitOperation(
+  client: ApiKeysClient,
+  op: Operation,
+  timeoutMs = 30_000,
+): Promise<Operation> {
+  if (op.done) return op;
+  const deadline = Date.now() + timeoutMs;
+  let current = op;
+  let delay = 250;
+  while (!current.done) {
+    if (Date.now() > deadline) {
+      throw new Error(
+        `Key creation did not complete within ${timeoutMs}ms. It may still have succeeded — ` +
+          'run apikeys_list before retrying so a duplicate is not created.',
+      );
+    }
+    await new Promise((r) => setTimeout(r, delay));
+    delay = Math.min(delay * 2, 2_000);
+    const { data } = await client.request<Operation>(
+      'GET',
+      `https://apikeys.googleapis.com/v2/${current.name}`,
+    );
+    current = data;
+  }
+  return current;
 }
