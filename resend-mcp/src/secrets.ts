@@ -35,6 +35,12 @@ export async function writeSecretFile(
   value: string,
   label: string,
 ): Promise<SecretHandle> {
+  if (!value) {
+    // An empty credential file is worse than none: it looks like success and
+    // deploys as a broken secret. A provider returning nothing is a bug to
+    // surface, not a value to persist.
+    throw new Error('Refusing to write an empty credential file — the provider returned no value.');
+  }
   const absolute = resolve(path);
   await mkdir(dirname(absolute), { recursive: true });
   // Written 0600 from the start rather than created then tightened — a
