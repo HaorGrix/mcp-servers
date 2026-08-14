@@ -6,6 +6,9 @@ import { ListToolsRequestSchema, CallToolRequestSchema } from "@modelcontextprot
 import { loadConfig } from "./src/config.js";
 import { GraphClient, GraphError } from "./src/graph.js";
 import { readTools, writeTools } from "./src/tools.js";
+import { analyticsTools } from "./src/analytics.js";
+import { governTools } from "./src/govern.js";
+import { optimizeTools } from "./src/optimize.js";
 
 let config;
 try {
@@ -19,7 +22,12 @@ const graph = new GraphClient(config);
 
 // Write tools are only registered when explicitly enabled, so a read-only deployment
 // cannot mutate a client account even if a caller invents the tool name.
-const tools = [...readTools(graph), ...(config.allowWrites ? writeTools(graph) : [])];
+const tools = [
+  ...readTools(graph),
+  ...analyticsTools(graph),
+  ...governTools(graph),
+  ...(config.allowWrites ? [...writeTools(graph), ...optimizeTools(graph)] : []),
+];
 const byName = new Map(tools.map((t) => [t.name, t]));
 
 const server = new Server(

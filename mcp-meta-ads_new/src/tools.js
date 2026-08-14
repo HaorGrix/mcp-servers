@@ -11,14 +11,14 @@ const FIELDS_OVERRIDE = {
 };
 
 /** Ad account ids must be act_<digits>; anything else is a caller mistake. */
-function assertAccountId(id) {
+export function assertAccountId(id) {
   if (typeof id !== "string" || !/^act_\d+$/.test(id)) {
     throw new GraphError(`ad_account_id must look like "act_123456789", got "${id}".`);
   }
   return id;
 }
 
-function assertNodeId(id, label) {
+export function assertNodeId(id, label) {
   if (typeof id !== "string" || !/^[A-Za-z0-9_]+$/.test(id)) {
     throw new GraphError(`${label} must be a Graph node id, got "${id}".`);
   }
@@ -29,7 +29,7 @@ function assertNodeId(id, label) {
  * Builds the insights query shared by every insights tool.
  * @param {object} args
  */
-function insightsParams(args) {
+export function insightsParams(args) {
   const {
     level = "account", date_preset = "maximum", time_increment, breakdowns,
     action_breakdowns, since, until, fields, filtering, use_lite_fields = false,

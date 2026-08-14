@@ -25,13 +25,84 @@ kept for reference, superseded by this rewrite.
 | `get_insights` | Performance at any level, with date ranges, daily rows, and breakdowns |
 | `get_account_snapshot` | One-shot audit: everything above in a single call |
 
+### Analytics (always available — added v2.1.0)
+
+Deeper reads across the Meta ecosystem, all on existing scopes (`ads_read`,
+`pages_read_engagement`, `business_management`). Endpoints that need a scope the token
+lacks return a clear error string instead of failing the whole call.
+
+| Tool | Returns |
+|---|---|
+| `get_creative_breakdown` | Ad-level performance joined with each ad's creative — which exact creative drove results |
+| `get_daypart` | Spend / clicks / conversations by hour of day (viewer timezone) |
+| `get_video_metrics` | Video retention per ad: plays, thruplays, 25/50/75/95/100%, avg watch time |
+| `get_quality_rankings` | Meta's quality / engagement / conversion rankings per ad |
+| `get_messaging_funnel` | WhatsApp/Messenger: conversations, first replies, depth-2/3/5, cost per conversation, optional breakdown |
+| `get_page` | Facebook Page metadata — followers, rating, contact, linked Instagram |
+| `get_page_insights` | Organic Page insights over time (impressions, engaged users, follower growth, views) |
+| `list_page_posts` | Organic posts with reach, engagement, clicks, reaction/comment/share counts |
+| `list_audiences` | Custom / lookalike / saved audiences: size, fill status, retention |
+| `estimate_audience` | Reach estimate for a targeting spec (`delivery_estimate`) |
+| `compare_accounts` | Side-by-side totals for two+ accounts (BD vs US) |
+| `get_business_assets` | Business portfolios + owned/client ad accounts and pages — ownership mapping |
+| `full_analytics_snapshot` | One-shot deep pull: ad insights + creative + day-part + video + quality + messaging funnel + breakdowns |
+
+**Wall (not a code problem):** WhatsApp message content, contact identity, and true
+unique-lead count are **not** reachable from the ad account. They require the WhatsApp
+number connected to the Business inbox / Cloud API (`whatsapp_business_management`), plus
+that portfolio's admin approval. `get_messaging_funnel` returns the ad-side counts and
+says so in a `note`.
+
+### Governance, scale & intelligence (always available — added v3.0.0)
+
+| Tool | Returns |
+|---|---|
+| `get_change_history` | Audit log (adactivity): who changed budgets/status/targeting and when |
+| `get_recommendations` | Meta's own optimization suggestions for an account/campaign |
+| `list_ad_rules` | Automated rules configured on the account (conditions, actions, schedule) |
+| `async_insights_report` | Heavy historical pulls via Meta's async job API (submit → poll → fetch) |
+| `get_reach_frequency_prediction` | Estimated reach for a budget/targeting over a window |
+| `get_rate_limit_status` | Live API usage the server has observed; it auto-throttles above 80% |
+
+The Graph client now parses Meta's usage headers (`x-app-usage`, `x-ad-account-usage`,
+`x-business-use-case-usage`) and proactively slows down near the ceiling, so agency-scale
+pulling doesn't hit a hard block.
+
 ### Write (only when `META_ALLOW_WRITES=true`)
+
+Standard object creation:
 
 | Tool | Effect |
 |---|---|
 | `create_campaign` | Creates a **PAUSED** campaign |
 | `create_adset` | Creates a **PAUSED** ad set with caller-supplied targeting |
+| `create_ad` | Creates a **PAUSED** ad from a post or creative |
 | `update_status` | ACTIVE / PAUSED / ARCHIVED on any node. **ACTIVE can start spending** |
+
+Optimization & automation (added v3.0.0) — the "make the ads smarter" layer:
+
+| Tool | Effect |
+|---|---|
+| `capi_send_event` | Conversions API: send a server-side event (Lead, Schedule, Purchase). PII SHA-256 hashed locally |
+| `upload_offline_conversions` | Batch-upload real outcomes (enrolled students, closed sales) so Meta optimizes toward customers |
+| `create_custom_audience` | Create an empty custom audience to fill from a CRM list |
+| `add_audience_users` | Add hashed emails/phones to a custom audience |
+| `create_lookalike` | Lookalike of enrolled families — target parents who resemble real customers |
+| `create_ad_rule` | Automated rule (auto-pause losers, auto-scale winners, dayparting). Defaults to DISABLED |
+| `bulk_update_status` | Same status across many nodes at once |
+| `duplicate_campaign` | Deep-copy a campaign into the same or another account (e.g. BD winner → US). Copy is **PAUSED** |
+
+All PII is SHA-256 hashed inside the process before any request leaves it. New objects are
+created PAUSED / DISABLED; nothing here starts spending on its own.
+
+### Real-time webhooks (`webhook.js` — separate process)
+
+`node webhook.js` runs a standalone receiver for **push** events (leadgen the instant it
+submits, messaging events once WhatsApp is on Cloud API, ad-account changes). It needs a
+public HTTPS URL and the verify token / app secret in env, then register the URL in the
+Meta App → Webhooks. It verifies `X-Hub-Signature-256`, acks fast, and appends events to a
+JSONL log (swap the `onEvent` hook to fan out to Slack / a sheet / a CRM). Not started by
+the MCP; deploy it where it can receive.
 
 When writes are disabled the tools are not registered at all, so a caller cannot invoke
 them by guessing the name.

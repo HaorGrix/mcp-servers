@@ -1,11 +1,11 @@
 {
   "name": "mcp-meta-ads",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "description": "Meta Marketing API MCP server: paginated reads, insights with breakdowns, guarded writes.",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "check": "node --check index.js && node --check src/config.js && node --check src/graph.js && node --check src/tools.js && node --check src/fields.js"
+    "check": "node --check index.js && node --check webhook.js && node --check src/config.js && node --check src/graph.js && node --check src/tools.js && node --check src/fields.js && node --check src/analytics.js && node --check src/govern.js && node --check src/optimize.js"
   },
   "keywords": [],
   "author": "",

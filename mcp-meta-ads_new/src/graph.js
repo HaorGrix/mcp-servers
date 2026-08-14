@@ -23,6 +23,35 @@ export class GraphClient {
   /** @param {import("./config.js").Config} config */
   constructor(config) {
     this.config = config;
+    /** Latest Meta rate-limit usage, parsed from response headers (0-100). */
+    this.usage = { app: 0, adAccount: 0, businessUseCase: 0, updatedAt: null };
+  }
+
+  /**
+   * Reads Meta's usage headers and records the worst percentage seen, so callers can
+   * throttle before hitting a hard block. Meta returns these as JSON strings.
+   * @param {Headers} headers
+   */
+  trackUsage(headers) {
+    const worst = (raw, pick) => {
+      if (!raw) return 0;
+      try {
+        const parsed = JSON.parse(raw);
+        const rows = Array.isArray(parsed) ? parsed : Object.values(parsed).flat();
+        return rows.reduce((m, r) => Math.max(m, pick(r)), 0);
+      } catch {
+        return 0;
+      }
+    };
+    const appPct = worst(headers.get("x-app-usage"), (r) => Math.max(r.call_count ?? 0, r.total_cputime ?? 0, r.total_time ?? 0));
+    const acctPct = worst(headers.get("x-ad-account-usage"), (r) => r.acc_id_util_pct ?? 0);
+    const bucPct = worst(headers.get("x-business-use-case-usage"), (r) => Math.max(r.call_count ?? 0, r.total_cputime ?? 0, r.total_time ?? 0));
+    this.usage = { app: appPct, adAccount: acctPct, businessUseCase: bucPct, updatedAt: Date.now() };
+  }
+
+  /** Worst current usage percentage across all buckets. */
+  peakUsage() {
+    return Math.max(this.usage.app, this.usage.adAccount, this.usage.businessUseCase);
   }
 
   /**
@@ -50,6 +79,12 @@ export class GraphClient {
         await sleep(backoff);
       }
 
+      // Proactive throttle: if Meta says we are near the ceiling, slow down before
+      // it hard-blocks us. Enterprise accounts hit this at agency scale.
+      const peak = this.peakUsage();
+      if (peak >= 95) await sleep(2000);
+      else if (peak >= 80) await sleep(500);
+
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), this.config.timeoutMs);
 
@@ -64,6 +99,7 @@ export class GraphClient {
           ...(method === "POST" ? { body: JSON.stringify(opts.body ?? {}) } : {}),
         });
 
+        this.trackUsage(res.headers);
         const text = await res.text();
         let payload;
         try {
@@ -142,6 +178,34 @@ export class GraphClient {
     }
 
     return { data: collected, pages, truncated: false };
+  }
+
+  /**
+   * Async insights report: submit the job, poll until complete, then page the result.
+   * For heavy historical pulls that time out synchronously. Bounded polling so it can
+   * never hang forever.
+   * @param {string} path e.g. "act_123/insights"
+   * @param {Record<string, string | number>} params
+   * @returns {Promise<{ data: any[], pages: number, report_run_id: string }>}
+   */
+  async asyncReport(path, params = {}) {
+    const submit = await this.request(path, {}, { method: "POST", body: params });
+    const runId = submit.report_run_id;
+    if (!runId) throw new GraphError("Async report did not return a report_run_id.", { path });
+
+    const maxPolls = 30;
+    for (let i = 0; i < maxPolls; i++) {
+      const status = await this.request(runId, { fields: "async_status,async_percent_completion" });
+      if (status.async_status === "Job Completed") {
+        const out = await this.paginate(`${runId}/insights`, {});
+        return { data: out.data, pages: out.pages, report_run_id: runId };
+      }
+      if (status.async_status === "Job Failed" || status.async_status === "Job Skipped") {
+        throw new GraphError(`Async report ${status.async_status} (run ${runId}).`, { path });
+      }
+      await sleep(Math.min(2000 + i * 500, 8000));
+    }
+    throw new GraphError(`Async report did not complete after ${maxPolls} polls (run ${runId}).`, { path });
   }
 
   /**
