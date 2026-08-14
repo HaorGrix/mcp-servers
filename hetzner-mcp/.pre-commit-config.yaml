@@ -1,0 +1,6 @@
+# Law 9. Runs on the laptop, so it works with Actions billing blocked.
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.18.0
+    hooks:
+      - id: gitleaks

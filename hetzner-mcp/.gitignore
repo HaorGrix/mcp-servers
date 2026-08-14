@@ -1,0 +1,25 @@
+# Law 1 — no plaintext secret, anywhere. This file exists BEFORE the first commit.
+.env
+.env.*
+*.env
+*.env.*
+!.env.example
+!**/.env.example
+!*.sops
+!**/*.sops
+age-key.txt
+keys.txt
+*.agekey
+*.pem
+*.key
+*secret*
+!**/*secret*.sops
+
+# build + deps
+node_modules/
+dist/
+*.tsbuildinfo
+
+# local noise
+.DS_Store
+*.log

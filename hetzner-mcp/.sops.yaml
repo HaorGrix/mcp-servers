@@ -1,0 +1,22 @@
+# Law 2 — prod and dev key groups are separate. A leaked dev key must be worthless
+# against the read-write token that can delete the fleet.
+#
+# These are HaorGrix INFRASTRUCTURE keys, deliberately distinct from the client key
+# at ~/.config/sops/age/keys.txt. A client key must never decrypt our fleet credentials.
+#
+# Private keys:  ~/.config/sops/age/haorgrix-infra-{prod,dev}.txt  (chmod 600, FileVault on)
+# Escrow:        Infrastructure/_SECRETS_confidential/escrow/  (encrypted to the break-glass key)
+creation_rules:
+  # Read-write token: can delete every server in the project. PROD group, operator only.
+  - path_regex: secrets/hcloud\.rw\.sops\.env$
+    key_groups:
+      - age:
+          - age19qa7ewulva554tklvqp7tcztdnffulc8aswxf434wgzu3le7k5eqnnd9rh
+
+  # Read-only token: inventory and audit only. DEV group, safe to widen to teammates
+  # by appending their public keys here and running `sops updatekeys`.
+  - path_regex: secrets/hcloud\.ro\.sops\.env$
+    key_groups:
+      - age:
+          - age1pa3nrs4jggrxsuml6tsv7d8tq89vmjk0zahcnq0u5pc2k5ufdu9stf7hkq
+          - age19qa7ewulva554tklvqp7tcztdnffulc8aswxf434wgzu3le7k5eqnnd9rh
