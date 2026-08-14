@@ -2,10 +2,11 @@
  * Billing and finance read tools: what an account has spent, what it still owes,
  * which card pays for it, and whether the token can even see the whole picture.
  *
- * Meta removed the /transactions edge (verified absent in v16-v23), so per-charge
- * receipts and card history are simply not obtainable through the Graph API. These
- * tools rebuild the ledger from daily insights instead and say so explicitly rather
- * than returning a bare "(#100) nonexisting field" that reads like a bug.
+ * Meta removed the /transactions edge (verified absent in v16-v23), but the billing
+ * data is NOT gone — it lives in the adactivity audit log as `ad_account_billing_charge`
+ * events carrying a transaction_id and amount, alongside `remove_funding_source` and
+ * `funding_event_successful`. get_billing_charges and get_funding_history read those,
+ * which is how per-charge receipts and card-change history are recovered.
  */
 import { GraphError } from "./graph.js";
 import { assertAccountId } from "./tools.js";
@@ -55,6 +56,16 @@ function money(raw) {
   if (raw === undefined || raw === null || raw === "") return null;
   const n = Number(raw);
   return Number.isFinite(n) ? Number((n / 100).toFixed(2)) : null;
+}
+
+/** Audit-log extra_data is a JSON *string*, and occasionally not JSON at all. */
+function parseExtra(raw) {
+  if (typeof raw !== "string" || !raw.startsWith("{")) return {};
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return {};
+  }
 }
 
 /** Shapes one raw account node into the billing view every tool here returns. */
@@ -112,9 +123,9 @@ export function billingTools(graph) {
         return {
           ...billingView(acct),
           note:
-            "Per-charge receipts (charge id, amount billed, card last-4 per charge) are NOT available: " +
-            "Meta removed the /transactions edge from the Graph API. Use get_spend_ledger for the daily " +
-            "charge history, and the Billing page in Ads Manager for downloadable invoices.",
+            "Per-charge receipts ARE available via get_billing_charges (recovered from the adactivity " +
+            "audit log after Meta removed the /transactions edge), and card-swap history via " +
+            "get_funding_history. Use get_spend_ledger for daily spend.",
         };
       },
     },
@@ -194,6 +205,158 @@ export function billingTools(graph) {
     },
 
     {
+      name: "get_billing_charges",
+      description:
+        "REAL per-charge billing history: every card charge Meta made against the account, each with its " +
+        "transaction id, amount and timestamp. Recovered from the adactivity audit log " +
+        "(`ad_account_billing_charge`), which survived the removal of the /transactions edge. Reconciles " +
+        "charges + outstanding balance against lifetime spend so gaps are visible rather than silent.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          ad_account_id: ACCOUNT_ID,
+          since: { type: "string", description: "YYYY-MM-DD. Default: account creation date." },
+          until: { type: "string", description: "YYYY-MM-DD. Default: today." },
+        },
+        required: ["ad_account_id"],
+      },
+      handler: async (a) => {
+        const id = assertAccountId(a.ad_account_id);
+        const acct = await graph.request(id, { fields: BILLING_FIELDS });
+        const view = billingView(acct);
+        const until = a.until ?? new Date().toISOString().slice(0, 10);
+        const since = a.since ?? (acct.created_time ? acct.created_time.slice(0, 10) : "2000-01-01");
+
+        const page = await graph.paginate(`${id}/activities`, {
+          since, until,
+          fields: "event_type,event_time,actor_name,extra_data",
+          limit: 500,
+        });
+
+        const charges = page.data
+          .filter((e) => e.event_type === "ad_account_billing_charge")
+          .map((e) => {
+            const x = parseExtra(e.extra_data);
+            return {
+              time: e.event_time,
+              amount: money(x.new_value),
+              currency: x.currency ?? acct.currency,
+              transaction_id: x.transaction_id ?? null,
+            };
+          })
+          .sort((p, q) => p.time.localeCompare(q.time));
+
+        const charged = Number(charges.reduce((s, c) => s + (c.amount ?? 0), 0).toFixed(2));
+        const owed = view.outstanding_balance ?? 0;
+        const lifetime = view.lifetime_spend;
+        // charged + still-owed should equal lifetime spend; if not, charges are missing.
+        const reconciles = lifetime !== null && Math.abs(charged + owed - lifetime) < 0.01;
+
+        return {
+          ad_account_id: id,
+          currency: acct.currency,
+          window: { since, until },
+          charge_count: charges.length,
+          total_charged: charged,
+          outstanding_balance: owed,
+          lifetime_spend: lifetime,
+          reconciles: reconciles,
+          unexplained_difference:
+            lifetime === null ? null : Number((lifetime - charged - owed).toFixed(2)),
+          current_payment_method: view.payment_method,
+          truncated: page.truncated,
+          charges,
+          ...(reconciles
+            ? {}
+            : {
+                warning:
+                  "total_charged + outstanding_balance does not equal lifetime_spend. Charges are " +
+                  "missing from this window (widen `since`) — do not treat this as the full history.",
+              }),
+          note:
+            "Amounts are what Meta actually billed the card. The audit log does not name which card paid " +
+            "each charge — pair with get_funding_history to see when cards were swapped.",
+        };
+      },
+    },
+
+    {
+      name: "get_funding_history",
+      description:
+        "Timeline of payment-method and billing-state changes: cards added or removed, prepaid top-ups " +
+        "(`funding_event_successful`), and every account status transition (Active ↔ Payment Needed ↔ " +
+        "Grace Period). This is how many cards an account has actually used over its life — recovered from " +
+        "the audit log, since the API exposes only the current funding source.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          ad_account_id: ACCOUNT_ID,
+          since: { type: "string", description: "YYYY-MM-DD. Default: account creation date." },
+          until: { type: "string", description: "YYYY-MM-DD. Default: today." },
+        },
+        required: ["ad_account_id"],
+      },
+      handler: async (a) => {
+        const id = assertAccountId(a.ad_account_id);
+        const acct = await graph.request(id, { fields: BILLING_FIELDS });
+        const view = billingView(acct);
+        const until = a.until ?? new Date().toISOString().slice(0, 10);
+        const since = a.since ?? (acct.created_time ? acct.created_time.slice(0, 10) : "2000-01-01");
+
+        const page = await graph.paginate(`${id}/activities`, {
+          since, until,
+          fields: "event_type,event_time,actor_name,extra_data",
+          limit: 500,
+        });
+
+        const KINDS = {
+          add_funding_source: "card_added",
+          remove_funding_source: "card_removed",
+          funding_event_successful: "prepaid_topup",
+          funding_event_initiated: "prepaid_topup_initiated",
+          ad_account_update_status: "status_change",
+        };
+
+        const events = page.data
+          .filter((e) => KINDS[e.event_type])
+          .map((e) => {
+            const x = parseExtra(e.extra_data);
+            const kind = KINDS[e.event_type];
+            return {
+              time: e.event_time,
+              kind,
+              actor: e.actor_name ?? null,
+              ...(kind === "status_change" ? { from: x.old_value, to: x.new_value } : {}),
+              ...(kind.startsWith("prepaid") ? { amount: money(x.amount), currency: x.currency } : {}),
+              ...(kind.startsWith("card")
+                ? { method: x.payment_method?.__html ?? "Payment method (type not disclosed)" }
+                : {}),
+            };
+          })
+          .sort((p, q) => p.time.localeCompare(q.time));
+
+        const removed = events.filter((e) => e.kind === "card_removed").length;
+        const added = events.filter((e) => e.kind === "card_added").length;
+
+        return {
+          ad_account_id: id,
+          window: { since, until },
+          current_payment_method: view.payment_method,
+          cards_removed: removed,
+          cards_added: added,
+          // Meta logs removals reliably but not always the original attachment, so the
+          // floor is what was removed plus whatever is on file now.
+          minimum_distinct_cards_used: removed + (view.payment_method ? 1 : 0),
+          events,
+          limitation:
+            "The audit log records that a card was removed, not its brand or last 4 — Meta redacts those " +
+            "to '“Credit/debit card”'. Only the CURRENT card's last 4 is available. Match removal " +
+            "timestamps against card statements to identify which card was which.",
+        };
+      },
+    },
+
+    {
       name: "get_payment_methods",
       description:
         "Funding source currently charged for an ad account (card brand + last 4, or credit line). " +
@@ -218,9 +381,9 @@ export function billingTools(graph) {
           outstanding_balance: money(acct.balance),
           status: ACCOUNT_STATUS[acct.account_status] ?? `UNKNOWN (${acct.account_status})`,
           limitation:
-            "Meta exposes only the CURRENT funding source. Previously used or removed cards, and which " +
-            "card paid a specific charge, cannot be retrieved through the Graph API — they exist only in " +
-            "Ads Manager > Billing & payments > Payment activity, or on the card statement itself.",
+            "Meta exposes only the CURRENT funding source here. For cards used previously, call " +
+            "get_funding_history — the audit log records every removal (brand/last-4 redacted). Which " +
+            "card paid a specific charge is still not disclosed by any endpoint.",
         };
       },
     },

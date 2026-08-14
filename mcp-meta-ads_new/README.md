@@ -73,16 +73,21 @@ pulling doesn't hit a hard block.
 | Tool | Returns |
 |---|---|
 | `get_billing_summary` | Lifetime spend, outstanding balance owed to Meta, status decoded to words, card on file, prepay/postpay, owning business |
+| `get_billing_charges` | **Every real card charge** with transaction id, amount and timestamp; reconciles charges + balance against lifetime spend |
+| `get_funding_history` | Card add/remove events, prepaid top-ups and every status transition — how many cards the account has actually used |
 | `get_spend_ledger` | Day-by-day spend with a running total, reconciled against the account's own `lifetime_spend` |
 | `get_payment_methods` | Current funding source (brand + last 4); states that card history is not retrievable |
 | `list_unsettled_accounts` | Sweeps every visible account for unpaid balances or non-ACTIVE status |
 | `check_scopes` | Which permissions the token actually holds, and which capabilities are therefore unavailable |
 
-**Meta removed the `/transactions` edge** — verified absent in v16 through v23. Per-charge
-receipts (charge id, amount billed, card last-4 per charge) cannot be obtained through the
-Graph API by any route; they exist only in Ads Manager → Billing & payments, or on the card
-statement. `get_spend_ledger` rebuilds the equivalent history from daily insights and asserts
-that it reconciles, rather than returning a bare `(#100) nonexisting field`.
+**Meta removed the `/transactions` edge** — verified absent in v16 through v23 — but the billing
+data itself survived in the **adactivity audit log**. `ad_account_billing_charge` events carry a
+`transaction_id`, amount and timestamp; `remove_funding_source` and `funding_event_successful`
+record card swaps and prepaid top-ups. `get_billing_charges` and `get_funding_history` read those,
+which is how per-charge receipts and card history are recovered without the removed edge.
+
+Still not obtainable by any route: **which card paid which charge**, and the brand/last-4 of a
+removed card (Meta redacts these to "Credit/debit card"). Only the current card's last 4 is exposed.
 
 `check_scopes` exists because Meta returns an **empty array, not an error**, when a scope is
 missing — so "no data" and "no permission" look identical. Run it before concluding an account
