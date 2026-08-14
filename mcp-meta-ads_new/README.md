@@ -68,6 +68,26 @@ The Graph client now parses Meta's usage headers (`x-app-usage`, `x-ad-account-u
 `x-business-use-case-usage`) and proactively slows down near the ceiling, so agency-scale
 pulling doesn't hit a hard block.
 
+### Billing & finance (always available — added v3.1.0)
+
+| Tool | Returns |
+|---|---|
+| `get_billing_summary` | Lifetime spend, outstanding balance owed to Meta, status decoded to words, card on file, prepay/postpay, owning business |
+| `get_spend_ledger` | Day-by-day spend with a running total, reconciled against the account's own `lifetime_spend` |
+| `get_payment_methods` | Current funding source (brand + last 4); states that card history is not retrievable |
+| `list_unsettled_accounts` | Sweeps every visible account for unpaid balances or non-ACTIVE status |
+| `check_scopes` | Which permissions the token actually holds, and which capabilities are therefore unavailable |
+
+**Meta removed the `/transactions` edge** — verified absent in v16 through v23. Per-charge
+receipts (charge id, amount billed, card last-4 per charge) cannot be obtained through the
+Graph API by any route; they exist only in Ads Manager → Billing & payments, or on the card
+statement. `get_spend_ledger` rebuilds the equivalent history from daily insights and asserts
+that it reconciles, rather than returning a bare `(#100) nonexisting field`.
+
+`check_scopes` exists because Meta returns an **empty array, not an error**, when a scope is
+missing — so "no data" and "no permission" look identical. Run it before concluding an account
+list is complete.
+
 ### Write (only when `META_ALLOW_WRITES=true`)
 
 Standard object creation:

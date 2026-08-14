@@ -9,6 +9,7 @@ import { readTools, writeTools } from "./src/tools.js";
 import { analyticsTools } from "./src/analytics.js";
 import { governTools } from "./src/govern.js";
 import { optimizeTools } from "./src/optimize.js";
+import { billingTools } from "./src/billing.js";
 
 let config;
 try {
@@ -26,6 +27,7 @@ const tools = [
   ...readTools(graph),
   ...analyticsTools(graph),
   ...governTools(graph),
+  ...billingTools(graph),
   ...(config.allowWrites ? [...writeTools(graph), ...optimizeTools(graph)] : []),
 ];
 const byName = new Map(tools.map((t) => [t.name, t]));

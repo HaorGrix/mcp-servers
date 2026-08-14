@@ -1,5 +1,29 @@
 # Changelog
 
+## [2026-08-15] — 3.1.0 — Billing & finance layer
+
+Answers "what did this cost, do we still owe anything, and which card pays" — none of
+which the previous 39 tools could do.
+
+New (src/billing.js, 5 read-only tools):
+- `get_billing_summary` — lifetime spend, outstanding balance, `account_status` decoded
+  (nobody remembers that 3 = UNSETTLED), disable reason, funding source, prepay flag,
+  spend cap, owning business.
+- `get_spend_ledger` — daily spend with running total, reconciled against the account's
+  own `lifetime_spend`; returns `reconciles_to_lifetime` plus a warning when it does not,
+  so a partial ledger can't be mistaken for a complete one.
+- `get_payment_methods` — current funding source, with the limitation stated in the payload.
+- `list_unsettled_accounts` — sweeps visible accounts for balances owed or non-ACTIVE status.
+- `check_scopes` — granted scopes mapped to capabilities. Meta returns an empty array rather
+  than an error for a missing scope, so empty results were previously unexplainable.
+
+Notes:
+- Money fields are converted from Meta's minor units; `amount_spent: "31103"` now reads 311.03.
+- Meta removed the `/transactions` edge (confirmed absent in v16-v23). The tools say so
+  explicitly instead of surfacing `(#100) nonexisting field`.
+- Verified live against act_4366636926998849 (BD) and act_3492079200934757 (US): ledger
+  reconciles to lifetime spend to the cent, and the sweep correctly flagged $32.89 unsettled.
+
 ## [2026-08-01] — 3.0.0 — Enterprise expansion (optimize / automate / react / scale / govern)
 
 Full enterprise build on top of the v2.1 analytics layer. 39 tools with writes enabled
