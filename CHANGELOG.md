@@ -113,3 +113,11 @@ All notable changes to the consolidated MCP servers workspace will be documented
 - Committed `meta-business-mcp` (13 tools) and `zoho-mail-mcp` (14 tools), previously untracked.
 - README corrected: 6 servers / 161 tools -> 8 servers / 188 tools.
 - Set `META_ALLOW_WRITES=false` in meta-ads and meta-business `.env` (was `true`; could activate campaigns and start real spend).
+
+## [2026-09-08] — meta-mcp: token & permission setup guide
+
+- Scoped consolidated `meta-mcp` server (one server, ~15 domain modules, full writes with destructive ops gated) to replace `mcp-meta-ads_new` + `meta-business-mcp`.
+- Audited the live System User token: non-expiring, 9 scopes, app `podium_ads`; reaches Podium + Josesp assets only, no HaorGrix assets, no Business Manager role, no Instagram link.
+- Wrote `meta-mcp/documentation/TOKEN-SETUP.md` — scope matrix per domain, 7-step setup, rate limits, security, sign-off checklist, and the explicit no-API / partner-gated list.
+- Build of the server itself is held until the token verification in Step 7 passes.
+- 2026-09-14: HaorGrix portfolio `1126790053843527` + app `haorgrix-mcp` verified; dev token (Tanvir user token, 11 scopes, expires 2026-11-12) recorded in TOKEN-SETUP.md §1.2; portfolio still has no ad account/IG/pixel.
