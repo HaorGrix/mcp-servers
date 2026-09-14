@@ -121,3 +121,4 @@ All notable changes to the consolidated MCP servers workspace will be documented
 - Wrote `meta-mcp/documentation/TOKEN-SETUP.md` — scope matrix per domain, 7-step setup, rate limits, security, sign-off checklist, and the explicit no-API / partner-gated list.
 - Build of the server itself is held until the token verification in Step 7 passes.
 - 2026-09-14: HaorGrix portfolio `1126790053843527` + app `haorgrix-mcp` verified; dev token (Tanvir user token, 11 scopes, expires 2026-11-12) recorded in TOKEN-SETUP.md §1.2; portfolio still has no ad account/IG/pixel.
+- 2026-09-15: **meta-mcp built** — 185 tools / 10 modules (business, pages, messenger, instagram, whatsapp, leads, catalog, developer, ads, overview), TypeScript, confirm-gated destructive ops, scope guards, token redaction, rate-limit throttling. Live smoke 40/41 (remaining one is Meta inbox-label ToS gate). Registered as `meta` in Claude user scope. Supersedes mcp-meta-ads_new + meta-business-mcp.
