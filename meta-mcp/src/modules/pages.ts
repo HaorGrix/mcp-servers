@@ -282,4 +282,158 @@ export const registerPages: Register = ({ server, client, config }) => {
     const { opts } = await withPage(pageId);
     return client.post(liveVideoId, { end_live_video: true }, opts);
   }));
+
+  // ── Reels & Stories ───────────────────────────────────────────────────────
+  server.tool("meta_page_reels", "Facebook Reels on the Page with views and status.", { pageId: z.string().optional(), limit: z.number().optional() }, guarded(async ({ pageId, limit }) => {
+    const { p, opts } = await withPage(pageId);
+    return client.getAll(`${p}/video_reels`, { fields: "id,title,description,created_time,length,permalink_url,status,views,post_views,thumbnails.limit(1)", limit: limit ?? 25 }, opts, 1);
+  }));
+
+  server.tool(
+    "meta_page_publish_reel",
+    "Publish a Facebook Reel from a public video URL or a local file (3-step resumable upload). Optionally schedule.",
+    { pageId: z.string().optional(), videoUrl: z.string().optional(), filePath: z.string().optional(), description: z.string().optional(), title: z.string().optional(), scheduledPublishTime: z.string().optional(), confirm: z.boolean().optional() },
+    guarded(async ({ pageId, videoUrl, filePath, description, title, scheduledPublishTime, confirm }) => {
+      assertConfirmed(config, confirm, "Publish Reel");
+      const { p, opts } = await withPage(pageId);
+      const start = await client.post<{ video_id: string; upload_url: string }>(`${p}/video_reels`, { upload_phase: "start" }, opts);
+      const headers: Record<string, string> = { Authorization: `OAuth ${opts.token}` };
+      if (filePath) {
+        const { readFile } = await import("node:fs/promises");
+        const buf = await readFile(filePath);
+        await client.uploadBinary(`https://rupload.facebook.com/video-upload/${config.version}/${start.video_id}`, buf, { ...headers, offset: "0", file_size: String(buf.length) });
+      } else if (videoUrl) {
+        await client.uploadBinary(`https://rupload.facebook.com/video-upload/${config.version}/${start.video_id}`, Buffer.alloc(0), { ...headers, file_url: videoUrl });
+      } else throw new Error("videoUrl or filePath required");
+      for (let i = 0; i < 40; i += 1) {
+        const st = await client.get<{ status: { uploading_phase?: { status: string }; processing_phase?: { status: string } } }>(start.video_id, { fields: "status" }, opts);
+        if (st.status.uploading_phase?.status === "complete") break;
+        if (st.status.uploading_phase?.status === "error") throw new Error(`Upload failed: ${JSON.stringify(st.status)}`);
+        await new Promise((r) => setTimeout(r, 3000));
+      }
+      const schedule = scheduledPublishTime ? { video_state: "SCHEDULED", scheduled_publish_time: Math.floor(new Date(scheduledPublishTime).getTime() / 1000) } : { video_state: "PUBLISHED" };
+      const fin = await client.post(`${p}/video_reels`, { upload_phase: "finish", video_id: start.video_id, description, title, ...schedule }, opts);
+      return { videoId: start.video_id, ...fin };
+    }),
+  );
+
+  server.tool("meta_page_stories", "Active Facebook Page Stories.", { pageId: z.string().optional() }, guarded(async ({ pageId }) => {
+    const { p, opts } = await withPage(pageId);
+    return client.getAll(`${p}/stories`, { fields: "post_id,status,creation_time,media_type,media_id,url" }, opts);
+  }));
+
+  server.tool("meta_page_publish_story", "Publish a Page Story from a photo URL/local file or a video URL/local file.", { pageId: z.string().optional(), kind: z.enum(["photo", "video"]), url: z.string().optional(), filePath: z.string().optional(), confirm: z.boolean().optional() }, guarded(async ({ pageId, kind, url, filePath, confirm }) => {
+    assertConfirmed(config, confirm, "Publish Story");
+    const { p, opts } = await withPage(pageId);
+    if (kind === "photo") {
+      const photo = filePath ? await client.upload<{ id: string }>(`${p}/photos`, filePath, "source", { published: false }, opts) : await client.post<{ id: string }>(`${p}/photos`, { url, published: false }, opts);
+      return client.post(`${p}/photo_stories`, { photo_id: photo.id }, opts);
+    }
+    const start = await client.post<{ video_id: string; upload_url: string }>(`${p}/video_stories`, { upload_phase: "start" }, opts);
+    const headers: Record<string, string> = { Authorization: `OAuth ${opts.token}` };
+    if (filePath) { const { readFile } = await import("node:fs/promises"); const buf = await readFile(filePath); await client.uploadBinary(start.upload_url, buf, { ...headers, offset: "0", file_size: String(buf.length) }); }
+    else if (url) await client.uploadBinary(start.upload_url, Buffer.alloc(0), { ...headers, file_url: url });
+    else throw new Error("url or filePath required");
+    await new Promise((r) => setTimeout(r, 5000));
+    return client.post(`${p}/video_stories`, { upload_phase: "finish", video_id: start.video_id }, opts);
+  }));
+
+  // ── Local file uploads ────────────────────────────────────────────────────
+  server.tool("meta_page_upload_photo_file", "Upload a local image file as a Page photo post (or unpublished for later use).", { pageId: z.string().optional(), filePath: z.string(), message: z.string().optional(), published: z.boolean().optional(), albumId: z.string().optional() }, guarded(async ({ pageId, filePath, message, published, albumId }) => {
+    assertWrites(config, "Upload photo");
+    const { p, opts } = await withPage(pageId);
+    return client.upload(`${albumId ?? p}/photos`, filePath, "source", { message, published: published ?? true }, opts);
+  }));
+
+  server.tool("meta_page_upload_video_file", "Upload a local video file to the Page (single request, up to ~1GB).", { pageId: z.string().optional(), filePath: z.string(), title: z.string().optional(), description: z.string().optional(), scheduledPublishTime: z.string().optional() }, guarded(async ({ pageId, filePath, title, description, scheduledPublishTime }) => {
+    assertWrites(config, "Upload video");
+    const { p, opts } = await withPage(pageId);
+    const schedule = scheduledPublishTime ? { published: false, scheduled_publish_time: Math.floor(new Date(scheduledPublishTime).getTime() / 1000) } : {};
+    return client.upload(`${p}/videos`, filePath, "source", { title, description, ...schedule }, { ...opts, host: `https://graph-video.facebook.com/${config.version}` });
+  }));
+
+  server.tool("meta_page_video_insights", "Insights for one video: views, 3s/10s/complete views, avg watch time, reactions, shares, retention.", { videoId: z.string(), pageId: z.string().optional(), metrics: z.array(z.string()).optional() }, guarded(async ({ videoId, pageId, metrics }) => {
+    const { opts } = await withPage(pageId);
+    return client.get(`${videoId}/video_insights`, { metric: metrics?.join(",") ?? "total_video_views,total_video_views_unique,total_video_10s_views,total_video_complete_views,total_video_avg_time_watched,total_video_impressions,total_video_reactions_by_type_total,total_video_stories_by_action_type" }, opts);
+  }));
+
+  server.tool("meta_page_video_crosspost", "Allow another Page to crosspost this video, or list crosspost partners.", { videoId: z.string(), pageId: z.string().optional(), targetPageIds: z.array(z.string()).optional() }, guarded(async ({ videoId, pageId, targetPageIds }) => {
+    const { opts } = await withPage(pageId);
+    if (!targetPageIds?.length) return client.get(videoId, { fields: "crosspost_original_video,crossposted_video_ids,is_crosspost_video,is_crossposting_eligible" }, opts);
+    assertWrites(config, "Crosspost");
+    return client.post(videoId, { allow_crossposting_for_pages: targetPageIds.map((id) => ({ page_id: id, allow: true })) }, opts);
+  }));
+
+  // ── Post detail ───────────────────────────────────────────────────────────
+  server.tool("meta_page_post_reactions", "Who reacted to a post, by reaction type.", { postId: z.string(), pageId: z.string().optional(), type: z.enum(["LIKE", "LOVE", "WOW", "HAHA", "SAD", "ANGRY", "CARE"]).optional(), limit: z.number().optional() }, guarded(async ({ postId, pageId, type, limit }) => {
+    const { opts } = await withPage(pageId);
+    return client.getAll(`${postId}/reactions`, { fields: "id,name,type", type, limit: limit ?? 100 }, opts, 1);
+  }));
+
+  server.tool("meta_page_post_shares", "Public reshares of a post.", { postId: z.string(), pageId: z.string().optional() }, guarded(async ({ postId, pageId }) => {
+    const { opts } = await withPage(pageId);
+    return client.getAll(`${postId}/sharedposts`, { fields: "id,from,created_time,message,permalink_url" }, opts, 1);
+  }));
+
+  server.tool("meta_page_dark_posts", "Unpublished (dark) posts created for ads on the Page.", { pageId: z.string().optional(), limit: z.number().optional() }, guarded(async ({ pageId, limit }) => {
+    const { p, opts } = await withPage(pageId);
+    return client.getAll(`${p}/ads_posts`, { fields: "id,message,created_time,is_published,permalink_url,admin_creator", limit: limit ?? 25 }, opts, 1);
+  }));
+
+  server.tool("meta_page_create_dark_post", "Create an unpublished post (for ads / boosting) without it appearing on the timeline.", { pageId: z.string().optional(), message: z.string().optional(), link: z.string().optional(), photoUrl: z.string().optional(), callToAction: z.object({ type: z.string(), value: z.record(z.unknown()) }).optional() }, guarded(async ({ pageId, message, link, photoUrl, callToAction }) => {
+    assertWrites(config, "Create dark post");
+    const { p, opts } = await withPage(pageId);
+    if (photoUrl) return client.post(`${p}/photos`, { url: photoUrl, message, published: false, unpublished_content_type: "ADS_POST" }, opts);
+    return client.post(`${p}/feed`, { message, link, published: false, unpublished_content_type: "ADS_POST", call_to_action: callToAction }, opts);
+  }));
+
+  server.tool("meta_page_rating_reply", "Reply to a review/recommendation as the Page (via its open_graph_story).", { pageId: z.string().optional(), reviewerId: z.string().optional(), storyId: z.string().optional(), message: z.string() }, guarded(async ({ pageId, reviewerId, storyId, message }) => {
+    assertWrites(config, "Rating reply");
+    const { p, opts } = await withPage(pageId);
+    let target = storyId;
+    if (!target) {
+      const ratings = await client.getAll<{ reviewer?: { id: string }; open_graph_story?: { id: string } }>(`${p}/ratings`, { fields: "reviewer,open_graph_story" }, opts);
+      target = ratings.find((r) => r.reviewer?.id === reviewerId)?.open_graph_story?.id;
+      if (!target) throw new Error("Review not found for that reviewerId; pass storyId from meta_page_ratings (field open_graph_story).");
+    }
+    return client.post(`${target}/comments`, { message }, opts);
+  }));
+
+  // ── Page config ───────────────────────────────────────────────────────────
+  server.tool("meta_page_cta_button", "Get the Page's call-to-action button, or set one (type e.g. MESSAGE, CALL_NOW, BOOK_NOW, SHOP_NOW, SIGN_UP, WHATSAPP_MESSAGE, LEARN_MORE; web_destination_type EMAIL_US/WEBSITE/...).", { pageId: z.string().optional(), type: z.string().optional(), webUrl: z.string().optional(), phoneNumber: z.string().optional(), email: z.string().optional(), remove: z.boolean().optional() }, guarded(async ({ pageId, type, webUrl, phoneNumber, email, remove }) => {
+    const { p, opts } = await withPage(pageId);
+    const existing = await client.getAll<{ id: string; type: string }>(`${p}/call_to_actions`, { fields: "id,type,web_destination_type,web_url,phone_number,email_address,status" }, opts);
+    if (!type && !remove) return existing;
+    assertWrites(config, "Page CTA");
+    if (remove) return Promise.all(existing.map((c) => client.delete(c.id, {}, opts)));
+    const body = { type, web_destination_type: webUrl ? "WEBSITE" : email ? "EMAIL" : undefined, web_url: webUrl, phone_number: phoneNumber, email_address: email };
+    return client.post(`${p}/call_to_actions`, body, opts);
+  }));
+
+  server.tool("meta_page_locations", "Location Pages under a main brand Page (multi-location businesses).", { pageId: z.string().optional() }, guarded(async ({ pageId }) => {
+    const { p, opts } = await withPage(pageId);
+    return client.getAll(`${p}/locations`, { fields: "id,name,location,phone,hours,is_permanently_closed,store_number,store_location_descriptor" }, opts);
+  }));
+
+  server.tool("meta_page_backed_instagram", "Page-backed Instagram accounts (used to run IG ads without a real IG account); create one if none exists.", { pageId: z.string().optional(), create: z.boolean().optional() }, guarded(async ({ pageId, create }) => {
+    const { p, opts } = await withPage(pageId);
+    const existing = await client.getAll(`${p}/page_backed_instagram_accounts`, { fields: "id,username" }, opts);
+    if (existing.length || !create) return existing;
+    assertWrites(config, "Create PBIA");
+    return client.post(`${p}/page_backed_instagram_accounts`, {}, opts);
+  }));
+
+  server.tool("meta_page_agencies", "Agencies (partner businesses) with access to the Page, and their permitted tasks.", { pageId: z.string().optional() }, guarded(async ({ pageId }) => {
+    const { p, opts } = await withPage(pageId);
+    return client.getAll(`${p}/agencies`, { fields: "id,name,permitted_tasks,access_status" }, opts);
+  }));
+
+  server.tool("meta_pages_snapshot_all", "28-day snapshot for every Page the system user manages, one call.", {}, guarded(async () => {
+    const pages = await client.getAll<{ id: string; name: string }>("me/accounts", { fields: "id,name" });
+    return Promise.all(pages.map(async (pg) => {
+      const opts = { token: await client.pageToken(pg.id) };
+      const ins = await client.get<{ data: Array<{ name: string; values: Array<{ value: number }> }> }>(`${pg.id}/insights`, { metric: "page_post_engagements,page_views_total,page_video_views,page_follows,page_daily_follows,page_daily_unfollows", period: "days_28" }, opts).catch(() => ({ data: [] }));
+      return { ...pg, last28Days: Object.fromEntries(ins.data.map((m) => [m.name, m.values.at(-1)?.value ?? 0])) };
+    }));
+  }));
 };

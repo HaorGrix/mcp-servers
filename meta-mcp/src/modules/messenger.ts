@@ -138,4 +138,78 @@ export const registerMessenger: Register = ({ server, client, config }) => {
     const { p, opts } = await withPage(pageId);
     return client.get(`${p}/subscribed_apps`, { fields: "id,name,subscribed_fields" }, opts);
   }));
+
+  // ── Rich sends & attachments ──────────────────────────────────────────────
+  server.tool("meta_messenger_upload_attachment", "Upload a reusable attachment (by URL or local file) and get an attachment_id to reuse in sends.", { pageId: z.string().optional(), type: z.enum(["image", "video", "audio", "file"]), url: z.string().optional(), filePath: z.string().optional() }, guarded(async ({ pageId, type, url, filePath }) => {
+    assertWrites(config, "Upload attachment");
+    const { p, opts } = await withPage(pageId);
+    if (filePath) return client.upload(`${p}/message_attachments`, filePath, "filedata", { message: { attachment: { type, payload: { is_reusable: true } } } }, opts);
+    return client.post(`${p}/message_attachments`, { message: { attachment: { type, payload: { url, is_reusable: true } } } }, opts);
+  }));
+
+  server.tool(
+    "meta_messenger_send_template",
+    "Send a structured template: generic (carousel of cards with image/title/subtitle/buttons), media (image/video with buttons), receipt, or a raw template payload.",
+    { pageId: z.string().optional(), recipientId: z.string(), template: z.enum(["generic", "media", "receipt", "raw"]), elements: z.array(z.record(z.unknown())).optional(), payload: z.record(z.unknown()).optional(), tag: MESSAGE_TAG.optional(), confirm: z.boolean().optional() },
+    guarded(async ({ pageId, recipientId, template, elements, payload, tag, confirm }) => {
+      assertConfirmed(config, confirm, "Send template");
+      const { p, opts } = await withPage(pageId);
+      const tpl = template === "raw" ? payload : { template_type: template, elements, ...(payload ?? {}) };
+      return client.post(`${p}/messages`, { recipient: { id: recipientId }, message: { attachment: { type: "template", payload: tpl } }, messaging_type: tag ? "MESSAGE_TAG" : "RESPONSE", tag }, opts);
+    }),
+  );
+
+  server.tool("meta_messenger_send_by_attachment_id", "Send a previously uploaded reusable attachment.", { pageId: z.string().optional(), recipientId: z.string(), type: z.enum(["image", "video", "audio", "file"]), attachmentId: z.string(), confirm: z.boolean().optional() }, guarded(async ({ pageId, recipientId, type, attachmentId, confirm }) => {
+    assertConfirmed(config, confirm, "Send attachment");
+    const { p, opts } = await withPage(pageId);
+    return client.post(`${p}/messages`, { recipient: { id: recipientId }, message: { attachment: { type, payload: { attachment_id: attachmentId } } } }, opts);
+  }));
+
+  server.tool("meta_messenger_reaction", "React to or unreact from a message.", { pageId: z.string().optional(), recipientId: z.string(), messageId: z.string(), reaction: z.string().optional() }, guarded(async ({ pageId, recipientId, messageId, reaction }) => {
+    assertWrites(config, "Reaction");
+    const { p, opts } = await withPage(pageId);
+    return client.post(`${p}/messages`, { recipient: { id: recipientId }, sender_action: reaction ? "react" : "unreact", payload: { message_id: messageId, reaction } }, opts);
+  }));
+
+  // ── Recurring notifications (re-engagement outside 24h) ──────────────────
+  server.tool("meta_messenger_notification_optin_request", "Ask a user to opt in to recurring notifications (daily/weekly/monthly). Returns a notification_messages_token via webhook once they accept.", { pageId: z.string().optional(), recipientId: z.string(), title: z.string(), imageUrl: z.string().optional(), frequency: z.enum(["DAILY", "WEEKLY", "MONTHLY"]).default("WEEKLY"), payload: z.string().optional(), confirm: z.boolean().optional() }, guarded(async ({ pageId, recipientId, title, imageUrl, frequency, payload, confirm }) => {
+    assertConfirmed(config, confirm, "Send opt-in request");
+    const { p, opts } = await withPage(pageId);
+    return client.post(`${p}/messages`, { recipient: { id: recipientId }, message: { attachment: { type: "template", payload: { template_type: "notification_messages", title, image_url: imageUrl, notification_messages_frequency: frequency, payload } } } }, opts);
+  }));
+
+  server.tool("meta_messenger_send_notification", "Send a recurring-notification message using an opt-in token (bypasses the 24h window until the token expires).", { pageId: z.string().optional(), notificationToken: z.string(), text: z.string().optional(), imageUrl: z.string().optional(), confirm: z.boolean().optional() }, guarded(async ({ pageId, notificationToken, text, imageUrl, confirm }) => {
+    assertConfirmed(config, confirm, "Send notification");
+    const { p, opts } = await withPage(pageId);
+    const message = imageUrl ? { attachment: { type: "image", payload: { url: imageUrl } } } : { text };
+    return client.post(`${p}/messages`, { recipient: { notification_messages_token: notificationToken }, message }, opts);
+  }));
+
+  // ── Handover & thread control ─────────────────────────────────────────────
+  server.tool("meta_messenger_thread_owner", "Which app currently owns a conversation thread (handover protocol).", { pageId: z.string().optional(), psid: z.string() }, guarded(async ({ pageId, psid }) => {
+    const { p, opts } = await withPage(pageId);
+    return client.get(`${p}/thread_owner`, { recipient: psid }, opts);
+  }));
+
+  server.tool("meta_messenger_request_thread_control", "Ask the current thread owner app to hand a conversation to this app.", { pageId: z.string().optional(), psid: z.string(), metadata: z.string().optional() }, guarded(async ({ pageId, psid, metadata }) => {
+    assertWrites(config, "Request thread control");
+    const { p, opts } = await withPage(pageId);
+    return client.post(`${p}/request_thread_control`, { recipient: { id: psid }, metadata }, opts);
+  }));
+
+  server.tool("meta_inbox_conversation_by_user", "Find the conversation with a specific PSID / IGSID.", { pageId: z.string().optional(), userId: z.string(), platform: z.enum(["messenger", "instagram"]).optional() }, guarded(async ({ pageId, userId, platform }) => {
+    const { p, opts } = await withPage(pageId);
+    return client.get(`${p}/conversations`, { user_id: userId, platform: platform ?? "messenger", fields: "id,updated_time,unread_count,message_count,messages.limit(5){message,from,created_time}" }, opts);
+  }));
+
+  server.tool("meta_messenger_delete_label", "Delete a custom label. Requires confirm=true.", { labelId: z.string(), pageId: z.string().optional(), confirm: z.boolean().optional() }, guarded(async ({ labelId, pageId, confirm }) => {
+    assertConfirmed(config, confirm, "Delete label");
+    const { opts } = await withPage(pageId);
+    return client.delete(labelId, {}, opts);
+  }));
+
+  server.tool("meta_messenger_user_labels", "Labels attached to a PSID.", { psid: z.string(), pageId: z.string().optional() }, guarded(async ({ psid, pageId }) => {
+    const { opts } = await withPage(pageId);
+    return client.getAll(`${psid}/custom_labels`, { fields: "id,page_label_name" }, opts);
+  }));
 };

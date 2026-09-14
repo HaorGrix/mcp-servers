@@ -9,6 +9,7 @@ import { registerLeads } from "./leads.js";
 import { registerCatalog } from "./catalog.js";
 import { registerDeveloper } from "./developer.js";
 import { registerAds } from "./ads.js";
+import { registerThreads } from "./threads.js";
 
 export const modules: Array<{ name: string; register: Register }> = [
   { name: "overview", register: registerOverview },
@@ -21,4 +22,5 @@ export const modules: Array<{ name: string; register: Register }> = [
   { name: "catalog", register: registerCatalog },
   { name: "developer", register: registerDeveloper },
   { name: "ads", register: registerAds },
+  { name: "threads", register: registerThreads },
 ];

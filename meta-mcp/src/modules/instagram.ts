@@ -233,4 +233,63 @@ export const registerInstagram: Register = ({ server, client, config }) => {
     assertWrites(config, "Set IG ice breakers");
     return client.post(`${p}/messenger_profile`, { platform: "instagram", ice_breakers: [{ locale: "default", call_to_actions: iceBreakers }] }, opts);
   }));
+
+  // ── Mentions, Live, misc ──────────────────────────────────────────────────
+  server.tool("meta_ig_mentioned_media", "Inspect a media item or comment where the account was @mentioned (ids arrive via the 'mentions' webhook).", { igUserId: z.string().optional(), mediaId: z.string().optional(), commentId: z.string().optional() }, guarded(async ({ igUserId, mediaId, commentId }) => {
+    const id = ig(igUserId);
+    if (commentId) return client.get(id, { fields: `mentioned_comment.comment_id(${commentId}){id,text,username,timestamp,like_count,media{id,permalink}}` });
+    if (mediaId) return client.get(id, { fields: `mentioned_media.media_id(${mediaId}){id,caption,media_type,permalink,username,timestamp,like_count,comments_count}` });
+    throw new Error("mediaId or commentId required");
+  }));
+
+  server.tool("meta_ig_mention_reply", "Reply to a caption mention (comment on the media) or a comment mention.", { igUserId: z.string().optional(), mediaId: z.string(), commentId: z.string().optional(), message: z.string() }, guarded(async ({ igUserId, mediaId, commentId, message }) => {
+    assertWrites(config, "Mention reply");
+    return client.post(`${ig(igUserId)}/mentions`, { media_id: mediaId, comment_id: commentId, message });
+  }));
+
+  server.tool("meta_ig_live_media", "Live broadcasts currently running on the account (for reading live comments).", { igUserId: z.string().optional() }, guarded(async ({ igUserId }) => client.getAll(`${ig(igUserId)}/live_media`, { fields: "id,media_type,permalink,timestamp,comments_count" })));
+
+  server.tool("meta_ig_live_comments", "Comments on a live broadcast (polled).", { liveMediaId: z.string(), limit: z.number().optional() }, guarded(async ({ liveMediaId, limit }) => client.getAll(`${liveMediaId}/comments`, { fields: "id,text,username,timestamp", limit: limit ?? 50 }, {}, 1)));
+
+  server.tool("meta_ig_recent_hashtags", "Hashtags the account searched via the API in the last 7 days (30/week limit).", { igUserId: z.string().optional() }, guarded(async ({ igUserId }) => client.getAll(`${ig(igUserId)}/recently_searched_hashtags`, { fields: "id,name" })));
+
+  server.tool("meta_ig_comment_private_reply", "Send a private DM in reply to a comment on a post or ad (opens a conversation, 7-day window).", { pageId: z.string().optional(), commentId: z.string(), text: z.string(), confirm: z.boolean().optional() }, guarded(async ({ pageId, commentId, text, confirm }) => {
+    assertConfirmed(config, confirm, "IG private reply");
+    await client.requireScopes("instagram_manage_messages");
+    const p = resolveId(pageId, config.defaults.pageId, "pageId", "META_PAGE_ID");
+    return client.post(`${p}/messages`, { recipient: { comment_id: commentId }, message: { text } }, { token: await client.pageToken(p) });
+  }));
+
+  server.tool("meta_ig_dm_reaction", "React to (or unreact from) an Instagram DM.", { pageId: z.string().optional(), recipientId: z.string(), messageId: z.string(), reaction: z.string().optional().describe("e.g. love; omit to unreact") }, guarded(async ({ pageId, recipientId, messageId, reaction }) => {
+    assertWrites(config, "IG DM reaction");
+    const p = resolveId(pageId, config.defaults.pageId, "pageId", "META_PAGE_ID");
+    return client.post(`${p}/messages`, { recipient: { id: recipientId }, sender_action: reaction ? "react" : "unreact", payload: { message_id: messageId, reaction } }, { token: await client.pageToken(p) });
+  }));
+
+  server.tool("meta_ig_dm_persistent_menu", "Get or set the Instagram DM persistent menu.", { pageId: z.string().optional(), menu: z.array(z.object({ type: z.enum(["web_url", "postback"]), title: z.string(), url: z.string().optional(), payload: z.string().optional() })).optional() }, guarded(async ({ pageId, menu }) => {
+    const p = resolveId(pageId, config.defaults.pageId, "pageId", "META_PAGE_ID");
+    const opts = { token: await client.pageToken(p) };
+    if (!menu) return client.get(`${p}/messenger_profile`, { fields: "persistent_menu", platform: "instagram" }, opts);
+    assertWrites(config, "IG persistent menu");
+    return client.post(`${p}/messenger_profile`, { platform: "instagram", persistent_menu: [{ locale: "default", call_to_actions: menu }] }, opts);
+  }));
+
+  server.tool("meta_ig_partnership_ad_permissions", "Creators who have allowed this brand to run partnership (formerly branded content) ads with their content; or request/remove permission.", { igUserId: z.string().optional(), action: z.enum(["list", "request", "remove"]).optional(), creatorIgId: z.string().optional() }, guarded(async ({ igUserId, action, creatorIgId }) => {
+    const id = ig(igUserId);
+    if (!action || action === "list") return client.get(`${id}/branded_content_ad_permissions`, { fields: "id,username,permission_status" }).catch(async () => client.get(`${id}/branded_content_ad_permissions`, {}));
+    assertWrites(config, "Partnership ad permission");
+    if (!creatorIgId) throw new Error("creatorIgId required");
+    return action === "request" ? client.post(`${id}/branded_content_ad_permissions`, { creator_instagram_account: creatorIgId }) : client.delete(`${id}/branded_content_ad_permissions`, { creator_instagram_account: creatorIgId });
+  }));
+
+  server.tool("meta_ig_boost_eligibility", "Whether a media item can be boosted as an ad and why not if not.", { mediaId: z.string() }, guarded(async ({ mediaId }) => client.get(mediaId, { fields: "id,boost_eligibility_info,boost_ads_list" })));
+
+  server.tool("meta_ig_media_children", "Items inside a carousel.", { mediaId: z.string() }, guarded(async ({ mediaId }) => client.getAll(`${mediaId}/children`, { fields: "id,media_type,media_url,thumbnail_url,permalink,timestamp" })));
+
+  server.tool("meta_ig_insights_online_followers", "When followers are online (hour-of-day histogram, lifetime).", { igUserId: z.string().optional() }, guarded(async ({ igUserId }) => client.get(`${ig(igUserId)}/insights`, { metric: "online_followers", period: "lifetime" })));
+
+  server.tool("meta_ig_conversations", "Instagram DM threads via the linked Page (shortcut for meta_inbox_conversations platform=instagram), optionally for one user.", { pageId: z.string().optional(), userId: z.string().optional(), limit: z.number().optional() }, guarded(async ({ pageId, userId, limit }) => {
+    const p = resolveId(pageId, config.defaults.pageId, "pageId", "META_PAGE_ID");
+    return client.getAll(`${p}/conversations`, { platform: "instagram", user_id: userId, fields: "id,participants,updated_time,unread_count,message_count,messages.limit(3){message,from,created_time}", limit: limit ?? 25 }, { token: await client.pageToken(p) }, 1);
+  }));
 };

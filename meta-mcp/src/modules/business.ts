@@ -200,4 +200,65 @@ export const registerBusiness: Register = ({ server, client, config }) => {
     { businessId: z.string().optional() },
     guarded(async ({ businessId }) => client.get(biz(businessId), { fields: "id,name,verification_status,two_factor_type,created_time" })),
   );
+
+  // ── Partners, credit, experiments, tokens ────────────────────────────────
+  server.tool("meta_business_partners", "Agencies that work on this portfolio's assets and clients whose assets this portfolio manages.", { businessId: z.string().optional() }, guarded(async ({ businessId }) => {
+    const b = biz(businessId);
+    const [agencies, clients, clientApps] = await Promise.all([
+      client.getAll(`${b}/agencies`, { fields: "id,name,link,verification_status" }).catch(() => []),
+      client.getAll(`${b}/clients`, { fields: "id,name,link,verification_status" }).catch(() => []),
+      client.getAll(`${b}/client_apps`, { fields: "id,name" }).catch(() => []),
+    ]);
+    return { agencies, clients, clientApps };
+  }));
+
+  server.tool("meta_business_share_asset_with_agency", "Give a partner business (agency) access to a page or ad account with permitted tasks.", { businessId: z.string().optional(), assetType: z.enum(["page", "ad_account"]), assetId: z.string(), agencyBusinessId: z.string(), permittedTasks: z.array(z.string()).min(1) }, guarded(async ({ businessId, assetType, assetId, agencyBusinessId, permittedTasks }) => {
+    assertWrites(config, "Share asset with agency");
+    return client.post(`${assetId}/agencies`, { business: agencyBusinessId, permitted_tasks: permittedTasks, ...(assetType === "page" ? {} : {}) , owner_business: biz(businessId) });
+  }));
+
+  server.tool("meta_business_credit_lines", "Extended credit lines (invoicing) on the portfolio with balance and limits.", { businessId: z.string().optional() }, guarded(async ({ businessId }) =>
+    client.getAll(`${biz(businessId)}/extendedcredits`, { fields: "id,legal_entity_name,balance,credit_available,max_balance,allocated_amount,last_payment_time,owning_business,partition_from,receiving_credit_allocation_config" }),
+  ));
+
+  server.tool("meta_business_invoices", "Monthly invoices for credit-line billing.", { businessId: z.string().optional(), since: z.string().optional(), until: z.string().optional() }, guarded(async ({ businessId, since, until }) =>
+    client.getAll(`${biz(businessId)}/business_invoices`, { fields: "id,billing_period,invoice_id,amount_due,amount,payment_status,due_date,invoice_date,download_uri", start_date: since, end_date: until }).catch((e: Error) => ({ error: e.message, note: "Invoices exist only for accounts on a credit line." })),
+  ));
+
+  server.tool("meta_experiments", "Experiments (A/B tests, conversion lift studies) on the portfolio.", { businessId: z.string().optional() }, guarded(async ({ businessId }) =>
+    client.getAll(`${biz(businessId)}/ad_studies`, { fields: "id,name,description,type,start_time,end_time,cells{id,name,treatment_percentage,campaigns{id,name}},created_time,updated_time,results_first_available_date" }),
+  ));
+
+  server.tool("meta_experiment_create", "Create an A/B test between campaigns (SPLIT_TEST) or a conversion-lift study. cells: [{name,treatment_percentage,campaigns:[id]}]. Requires confirm=true.", { businessId: z.string().optional(), name: z.string(), description: z.string().optional(), type: z.enum(["SPLIT_TEST", "LIFT"]).default("SPLIT_TEST"), startTime: z.string(), endTime: z.string(), cells: z.array(z.object({ name: z.string(), treatment_percentage: z.number(), campaigns: z.array(z.string()).optional(), adsets: z.array(z.string()).optional() })).min(2), confirm: z.boolean().optional() }, guarded(async ({ businessId, name, description, type, startTime, endTime, cells, confirm }) => {
+    assertConfirmed(config, confirm, "Create experiment");
+    return client.post(`${biz(businessId)}/ad_studies`, { name, description, type, start_time: Math.floor(new Date(startTime).getTime() / 1000), end_time: Math.floor(new Date(endTime).getTime() / 1000), cells });
+  }));
+
+  server.tool("meta_system_user_generate_token", "Mint a System User access token via API for a given app + scopes (needs META_APP_SECRET and the app must be owned by the portfolio). Returns the token once; store it in .env yourself. Requires confirm=true.", { systemUserId: z.string(), appId: z.string().optional(), scopes: z.array(z.string()).min(1), setTokenExpiresIn60Days: z.boolean().optional(), confirm: z.boolean().optional() }, guarded(async ({ systemUserId, appId, scopes, setTokenExpiresIn60Days, confirm }) => {
+    assertConfirmed(config, confirm, "Generate system user token");
+    if (!config.appSecret) throw new Error("META_APP_SECRET is required for token generation.");
+    const app = resolveId(appId, config.defaults.appId, "appId", "META_APP_ID");
+    return client.post<{ access_token: string }>(`${systemUserId}/access_tokens`, { business_app: app, scope: scopes.join(","), set_token_expires_in_60_days: setTokenExpiresIn60Days ?? false });
+  }));
+
+  server.tool("meta_business_pending_asset_claims", "Pages and ad accounts with pending ownership or client-access claims into this portfolio.", { businessId: z.string().optional() }, guarded(async ({ businessId }) => {
+    const b = biz(businessId);
+    const e = (x: string) => client.getAll(`${b}/${x}`, { fields: "id,name" }).catch(() => []);
+    const [ownedPages, clientPages, clientAds, ownedAds] = await Promise.all([e("pending_owned_pages"), e("pending_client_pages"), e("pending_client_ad_accounts"), e("pending_owned_ad_accounts")]);
+    return { pendingOwnedPages: ownedPages, pendingClientPages: clientPages, pendingClientAdAccounts: clientAds, pendingOwnedAdAccounts: ownedAds };
+  }));
+
+  server.tool("meta_business_create_pixel", "Create a pixel/dataset owned by the portfolio (not tied to one ad account).", { businessId: z.string().optional(), name: z.string() }, guarded(async ({ businessId, name }) => {
+    assertWrites(config, "Create business pixel");
+    return client.post(`${biz(businessId)}/adspixels`, { name });
+  }));
+
+  server.tool("meta_business_instagram_accounts", "Instagram accounts connected to the portfolio (owned and via Pages).", { businessId: z.string().optional() }, guarded(async ({ businessId }) => {
+    const b = biz(businessId);
+    const [owned, viaPages] = await Promise.all([
+      client.getAll(`${b}/owned_instagram_accounts`, { fields: "id,username,followers_count,media_count,profile_picture_url" }).catch(() => []),
+      client.getAll(`${b}/instagram_accounts`, { fields: "id,username,followed_by_count" }).catch(() => []),
+    ]);
+    return { owned, viaPages };
+  }));
 };

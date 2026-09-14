@@ -83,4 +83,50 @@ export const registerCatalog: Register = ({ server, client, config }) => {
   server.tool("meta_commerce_accounts", "Commerce (Shop) accounts visible to the token, with onboarding and payout status. Needs commerce_account_read_settings for full detail.", { businessId: z.string().optional() }, guarded(async ({ businessId }) =>
     client.getAll(`${biz(businessId)}/commerce_merchant_settings`, { fields: "id,display_name,merchant_page,onsite_commerce_merchant,setup_status,payment_provider,shops,checkout_config" }).catch((e: Error) => ({ error: e.message, note: "Shops/checkout require commerce_* scopes and a supported country; catalog tools work without them." })),
   ));
+
+  // ── Product groups, categories, pixel link, batch status ─────────────────
+  server.tool("meta_catalog_product_groups", "Product groups (variant families) in a catalog, or the variants of one group.", { catalogId: z.string().optional(), productGroupId: z.string().optional(), limit: z.number().optional() }, guarded(async ({ catalogId, productGroupId, limit }) => {
+    if (productGroupId) return client.getAll(`${productGroupId}/products`, { fields: PRODUCT_FIELDS, limit: limit ?? 100 }, {}, 1);
+    if (!catalogId) throw new Error("catalogId or productGroupId required");
+    return client.getAll(`${catalogId}/product_groups`, { fields: "id,retailer_id,variants", limit: limit ?? 100 }, {}, 1);
+  }));
+
+  server.tool("meta_catalog_categories", "Google product categories used in the catalog and their item counts.", { catalogId: z.string() }, guarded(async ({ catalogId }) => client.getAll(`${catalogId}/categories`, { fields: "name,num_items,criteria_value" }).catch(async () => client.get(`${catalogId}/categories`, { categorization_criteria: "GOOGLE_PRODUCT_CATEGORY" }))));
+
+  server.tool("meta_catalog_event_sources", "Pixels/apps linked to the catalog (needed for dynamic ads and retargeting), or link one.", { catalogId: z.string(), linkPixelId: z.string().optional() }, guarded(async ({ catalogId, linkPixelId }) => {
+    if (!linkPixelId) return client.getAll(`${catalogId}/external_event_sources`, { fields: "id,name,source_type" });
+    assertWrites(config, "Link pixel to catalog");
+    return client.post(`${catalogId}/external_event_sources`, { external_event_sources: [linkPixelId] });
+  }));
+
+  server.tool("meta_catalog_batch_status", "Status of a previous items_batch request (handle from meta_catalog_batch).", { catalogId: z.string(), handle: z.string() }, guarded(async ({ catalogId, handle }) => client.get(`${catalogId}/check_batch_request_status`, { handle })));
+
+  server.tool("meta_catalog_localized_feeds", "Country/language feeds attached to a catalog (localized pricing/descriptions).", { catalogId: z.string() }, guarded(async ({ catalogId }) => client.getAll(`${catalogId}/product_feeds`, { fields: "id,name,country,default_currency,feed_type,override_type,schedule" })));
+
+  // ── Shops & orders (need commerce_* scopes) ───────────────────────────────
+  server.tool("meta_shops", "Shops (Facebook/Instagram storefronts) under a commerce account.", { commerceAccountId: z.string() }, guarded(async ({ commerceAccountId }) => {
+    await client.requireScopes("commerce_account_read_settings");
+    return client.getAll(`${commerceAccountId}/shops`, { fields: "id,name,fb_sales_channel,ig_sales_channel,shop_status,is_onsite_enabled" });
+  }));
+
+  server.tool("meta_commerce_orders", "Orders on a commerce account (Checkout on FB/IG). state: CREATED, IN_PROGRESS, COMPLETED, FB_PROCESSING.", { commerceAccountId: z.string(), state: z.string().optional(), since: z.string().optional(), until: z.string().optional(), limit: z.number().optional() }, guarded(async ({ commerceAccountId, state, since, until, limit }) => {
+    await client.requireScopes("commerce_account_read_orders");
+    return client.getAll(`${commerceAccountId}/commerce_orders`, { state, updated_after: since, updated_before: until, fields: "id,order_status,created,last_updated,estimated_payment_details,buyer_details,shipping_address,items{name,retailer_id,quantity,price_per_unit,product_id}", limit: limit ?? 50 }, {}, 1);
+  }));
+
+  server.tool("meta_commerce_order_action", "Acknowledge, ship (with tracking), cancel, or refund an order. Requires confirm=true.", { orderId: z.string(), action: z.enum(["acknowledge", "ship", "cancel", "refund"]), idempotencyKey: z.string().optional(), carrier: z.string().optional(), trackingNumber: z.string().optional(), items: z.array(z.object({ retailer_id: z.string(), quantity: z.number() })).optional(), reasonCode: z.string().optional(), reasonText: z.string().optional(), confirm: z.boolean().optional() }, guarded(async ({ orderId, action, idempotencyKey, carrier, trackingNumber, items, reasonCode, reasonText, confirm }) => {
+    assertConfirmed(config, confirm, `Order ${action}`);
+    await client.requireScopes("commerce_account_manage_orders");
+    const key = idempotencyKey ?? `${orderId}-${action}-${Date.now()}`;
+    switch (action) {
+      case "acknowledge": return client.post(`${orderId}/acknowledge_order`, { idempotency_key: key });
+      case "ship": return client.post(`${orderId}/shipments`, { idempotency_key: key, items, tracking_info: { carrier, tracking_number: trackingNumber } });
+      case "cancel": return client.post(`${orderId}/cancellations`, { idempotency_key: key, items, reason: { reason_code: reasonCode ?? "CUSTOMER_REQUESTED", reason_description: reasonText } });
+      case "refund": return client.post(`${orderId}/refunds`, { idempotency_key: key, items, reason: { reason_code: reasonCode ?? "BUYERS_REMORSE", reason_description: reasonText } });
+    }
+  }));
+
+  server.tool("meta_commerce_insights", "Commerce Insights: shop views, product views, purchases for a commerce account (where Meta exposes them).", { commerceAccountId: z.string(), since: z.string().optional(), until: z.string().optional() }, guarded(async ({ commerceAccountId, since, until }) =>
+    client.get(`${commerceAccountId}/insights`, { since, until }).catch((e: Error) => ({ error: e.message, note: "Commerce insights are UI-only for most markets; catalog product-level commerce_insights are available via meta_catalog_product_get." })),
+  ));
 };

@@ -328,4 +328,129 @@ export const registerAds: Register = ({ server, client, config }) => {
     const [account, adsets] = await Promise.all([client.get(id, { fields: "attribution_spec" }), client.getAll(`${id}/adsets`, { fields: "id,name,attribution_spec", limit: 100 }, {}, 1)]);
     return { account, adsets };
   }));
+
+  // ── Custom conversions ────────────────────────────────────────────────────
+  server.tool("meta_custom_conversions", "Custom conversions on the account (rules over pixel events / URLs) with counts.", { adAccountId: z.string().optional() }, guarded(async ({ adAccountId }) =>
+    client.getAll(`${act(adAccountId)}/customconversions`, { fields: "id,name,description,custom_event_type,rule,pixel,default_conversion_value,is_archived,last_fired_time,creation_time,event_source_type,data_sources" }),
+  ));
+
+  server.tool("meta_custom_conversion_create", "Create a custom conversion. rule e.g. {\"and\":[{\"event\":{\"eq\":\"PageView\"}},{\"url\":{\"i_contains\":\"/thank-you\"}}]}.", { adAccountId: z.string().optional(), name: z.string(), pixelId: z.string(), customEventType: z.enum(["ADD_PAYMENT_INFO", "ADD_TO_CART", "ADD_TO_WISHLIST", "COMPLETE_REGISTRATION", "CONTENT_VIEW", "INITIATED_CHECKOUT", "LEAD", "PURCHASE", "SEARCH", "CONTACT", "SUBMIT_APPLICATION", "SCHEDULE", "SUBSCRIBE", "OTHER"]), rule: z.record(z.unknown()), defaultValue: z.number().optional(), description: z.string().optional() }, guarded(async ({ adAccountId, name, pixelId, customEventType, rule, defaultValue, description }) => {
+    assertWrites(config, "Create custom conversion");
+    return client.post(`${act(adAccountId)}/customconversions`, { name, event_source_id: pixelId, custom_event_type: customEventType, rule, default_conversion_value: defaultValue, description });
+  }));
+
+  server.tool("meta_custom_conversion_update", "Rename, redescribe, or archive/unarchive a custom conversion.", { customConversionId: z.string(), name: z.string().optional(), description: z.string().optional(), defaultValue: z.number().optional(), archive: z.boolean().optional() }, guarded(async ({ customConversionId, name, description, defaultValue, archive }) => {
+    assertWrites(config, "Update custom conversion");
+    return client.post(customConversionId, { name, description, default_conversion_value: defaultValue, is_archived: archive });
+  }));
+
+  server.tool("meta_custom_conversion_delete", "Delete a custom conversion. Requires confirm=true.", { customConversionId: z.string(), confirm: z.boolean().optional() }, guarded(async ({ customConversionId, confirm }) => {
+    assertConfirmed(config, confirm, "Delete custom conversion");
+    return client.delete(customConversionId);
+  }));
+
+  // ── Account admin & billing ───────────────────────────────────────────────
+  server.tool("meta_ad_account_update", "Rename the account, set/clear the spend cap (minor units; 0 removes), set default DSA beneficiary/payor, or attribution.", { adAccountId: z.string().optional(), name: z.string().optional(), spendCap: z.number().optional(), spendCapAction: z.enum(["reset"]).optional(), dsaBeneficiary: z.string().optional(), dsaPayor: z.string().optional(), attributionSpec: z.array(z.record(z.unknown())).optional(), confirm: z.boolean().optional() }, guarded(async ({ adAccountId, name, spendCap, spendCapAction, dsaBeneficiary, dsaPayor, attributionSpec, confirm }) => {
+    if (spendCap !== undefined || spendCapAction) assertConfirmed(config, confirm, "Change spend cap"); else assertWrites(config, "Update ad account");
+    return client.post(act(adAccountId), { name, spend_cap: spendCap, spend_cap_action: spendCapAction, default_dsa_beneficiary: dsaBeneficiary, default_dsa_payor: dsaPayor, attribution_spec: attributionSpec });
+  }));
+
+  server.tool("meta_ad_account_users", "People and partners (agencies) with access to the ad account.", { adAccountId: z.string().optional(), businessId: z.string().optional() }, guarded(async ({ adAccountId, businessId }) => {
+    const id = act(adAccountId);
+    const [users, agencies] = await Promise.all([
+      client.getAll(`${id}/assigned_users`, { business: resolveId(businessId, config.defaults.businessId, "businessId", "META_BUSINESS_ID"), fields: "id,name,tasks" }).catch(() => []),
+      client.getAll(`${id}/agencies`, { fields: "id,name,permitted_tasks,access_status" }).catch(() => []),
+    ]);
+    return { users, agencies };
+  }));
+
+  server.tool("meta_ad_account_billing", "Billing view: funding source, payment cycle/threshold, balance, spend cap, recent charges from the activity log, and credit-line invoices if any.", { adAccountId: z.string().optional(), since: z.string().optional() }, guarded(async ({ adAccountId, since }) => {
+    const id = act(adAccountId);
+    const [account, cycle, charges] = await Promise.all([
+      client.get(id, { fields: "name,currency,amount_spent,balance,spend_cap,funding_source_details,is_prepay_account,next_bill_date,account_status,disable_reason" }),
+      client.get(`${id}/adspaymentcycle`, {}).catch(() => null),
+      client.getAll<Record<string, unknown>>(`${id}/activities`, { fields: "event_time,event_type,extra_data,actor_name", since, limit: 200, category: "ACCOUNT" }, {}, 2).catch(() => []),
+    ]);
+    const billing = charges.filter((c) => /funding|billing|charge|spend_cap|payment/i.test(String(c["event_type"])));
+    return { account, paymentCycle: cycle, billingEvents: billing };
+  }));
+
+  server.tool("meta_ad_account_limits", "Minimum budgets per currency/bid strategy, and how many ads are running vs the per-Page limit.", { adAccountId: z.string().optional(), pageId: z.string().optional() }, guarded(async ({ adAccountId, pageId }) => {
+    const id = act(adAccountId);
+    const [minBudgets, volume] = await Promise.all([
+      client.get(`${id}/minimum_budgets`, { bid_amount: 100 }).catch((e: Error) => ({ error: e.message })),
+      client.get(`${id}/ads_volume`, { page_id: pageId ?? config.defaults.pageId, show_breakdown_by_actor: true }).catch((e: Error) => ({ error: e.message })),
+    ]);
+    return { minimumBudgets: minBudgets, adsVolume: volume };
+  }));
+
+  server.tool("meta_publisher_block_lists", "Brand safety: publisher block lists on the account; create one or add app/website URLs to it.", { adAccountId: z.string().optional(), createName: z.string().optional(), blockListId: z.string().optional(), addUrls: z.array(z.string()).optional() }, guarded(async ({ adAccountId, createName, blockListId, addUrls }) => {
+    const id = act(adAccountId);
+    if (createName) { assertWrites(config, "Create block list"); return client.post(`${id}/publisher_block_lists`, { name: createName }); }
+    if (blockListId && addUrls?.length) { assertWrites(config, "Add to block list"); return client.post(`${blockListId}/append_publisher_urls`, { publisher_urls: addUrls }); }
+    return client.getAll(`${id}/publisher_block_lists`, { fields: "id,name,app_publishers,web_publishers,is_eligible_at_campaign_level" });
+  }));
+
+  // ── Convenience flows ─────────────────────────────────────────────────────
+  server.tool(
+    "meta_boost_post",
+    "Boost an existing Page or Instagram post: creates campaign + ad set + creative + ad in one go (PAUSED unless activate=true, which requires confirm). Budget in minor units per day. Targeting defaults to countries + age range; pass a full targeting spec to override.",
+    { adAccountId: z.string().optional(), pageId: z.string().optional(), postId: z.string().describe("Page post id (pageid_postid) or IG media id"), source: z.enum(["page", "instagram"]).default("page"), name: z.string().optional(), objective: OBJECTIVE.default("OUTCOME_ENGAGEMENT"), optimizationGoal: z.string().default("POST_ENGAGEMENT"), dailyBudget: z.number(), days: z.number().default(7), countries: z.array(z.string()).default(["BD"]), ageMin: z.number().default(18), ageMax: z.number().default(65), targeting: z.record(z.unknown()).optional(), activate: z.boolean().optional(), confirm: z.boolean().optional() },
+    guarded(async (a) => {
+      if (a.activate) assertConfirmed(config, a.confirm, "Boost post (ACTIVE)"); else assertWrites(config, "Boost post");
+      await requireAds();
+      const id = act(a.adAccountId);
+      const page = resolveId(a.pageId, config.defaults.pageId, "pageId", "META_PAGE_ID");
+      const status = a.activate ? "ACTIVE" : "PAUSED";
+      const label = a.name ?? `Boost ${a.postId} ${new Date().toISOString().slice(0, 10)}`;
+      const campaign = await client.post<{ id: string }>(`${id}/campaigns`, { name: label, objective: a.objective, status, special_ad_categories: ["NONE"] });
+      const end = new Date(Date.now() + a.days * 86400_000).toISOString();
+      const adset = await client.post<{ id: string }>(`${id}/adsets`, { name: label, campaign_id: campaign.id, status, daily_budget: a.dailyBudget, billing_event: "IMPRESSIONS", optimization_goal: a.optimizationGoal, end_time: end, promoted_object: { page_id: page }, targeting: a.targeting ?? { geo_locations: { countries: a.countries }, age_min: a.ageMin, age_max: a.ageMax } });
+      const creativeBody = a.source === "page" ? { name: label, object_story_id: a.postId.includes("_") ? a.postId : `${page}_${a.postId}` } : { name: label, object_id: page, source_instagram_media_id: a.postId, instagram_user_id: config.defaults.igUserId };
+      const creative = await client.post<{ id: string }>(`${id}/adcreatives`, creativeBody);
+      const ad = await client.post<{ id: string }>(`${id}/ads`, { name: label, adset_id: adset.id, creative: { creative_id: creative.id }, status });
+      return { campaignId: campaign.id, adsetId: adset.id, creativeId: creative.id, adId: ad.id, status };
+    }),
+  );
+
+  server.tool("meta_creative_create_catalog_ad", "Create a dynamic product (catalog) creative: carousel/single from a product set with a template message.", { adAccountId: z.string().optional(), name: z.string(), pageId: z.string().optional(), productSetId: z.string(), message: z.string(), linkUrl: z.string().optional(), callToAction: z.string().default("SHOP_NOW"), format: z.enum(["carousel", "single"]).default("carousel"), instagramUserId: z.string().optional() }, guarded(async ({ adAccountId, name, pageId, productSetId, message, linkUrl, callToAction, format, instagramUserId }) => {
+    assertWrites(config, "Create catalog creative");
+    const page = resolveId(pageId, config.defaults.pageId, "pageId", "META_PAGE_ID");
+    return client.post(`${act(adAccountId)}/adcreatives`, { name, product_set_id: productSetId, object_story_spec: { page_id: page, instagram_user_id: instagramUserId ?? config.defaults.igUserId, template_data: { message, link: linkUrl ?? "https://facebook.com", call_to_action: { type: callToAction }, format_option: format === "carousel" ? "carousel_images_multi_items" : "single_image" } } });
+  }));
+
+  server.tool("meta_ad_leads", "Leads generated by one ad or ad set (lead ads), flattened.", { objectId: z.string(), since: z.string().optional() }, guarded(async ({ objectId, since }) => {
+    const filtering = since ? JSON.stringify([{ field: "time_created", operator: "GREATER_THAN", value: Math.floor(new Date(since).getTime() / 1000) }]) : undefined;
+    const rows = await client.getAll<{ id: string; created_time: string; field_data: Array<{ name: string; values: string[] }> }>(`${objectId}/leads`, { fields: "id,created_time,ad_id,form_id,field_data", filtering });
+    return rows.map((l) => ({ id: l.id, created_time: l.created_time, ...Object.fromEntries(l.field_data.map((f) => [f.name, f.values.join(", ")])) }));
+  }));
+
+  server.tool("meta_insights_advanced", "Insights with attribution controls: actionAttributionWindows (1d_click,7d_click,1d_view,28d_click...), useUnifiedAttribution, actionReportTime (impression|conversion), productIdLimit for catalog breakdowns.", { objectId: z.string().optional(), level: LEVEL.optional(), fields: z.array(z.string()).optional(), datePreset: z.string().optional(), timeRange: z.object({ since: z.string(), until: z.string() }).optional(), breakdowns: z.array(z.string()).optional(), actionAttributionWindows: z.array(z.string()).optional(), useUnifiedAttribution: z.boolean().optional(), actionReportTime: z.enum(["impression", "conversion", "mixed"]).optional(), productIdLimit: z.number().optional(), limit: z.number().optional() }, guarded(async (a) =>
+    client.getAll(`${a.objectId ?? act()}/insights`, { level: a.level ?? "campaign", fields: (a.fields ?? INSIGHT_FIELDS.split(",")).join(","), date_preset: a.timeRange ? undefined : (a.datePreset ?? "last_30d"), time_range: a.timeRange ? JSON.stringify(a.timeRange) : undefined, breakdowns: a.breakdowns?.join(","), action_attribution_windows: a.actionAttributionWindows ? JSON.stringify(a.actionAttributionWindows) : undefined, use_unified_attribution_setting: a.useUnifiedAttribution, action_report_time: a.actionReportTime, product_id_limit: a.productIdLimit, limit: a.limit ?? 500 }, {}, 10),
+  ));
+
+  server.tool("meta_reach_frequency_prediction", "Reach & Frequency: create a prediction (reservation quote) or read one. Only works for eligible accounts.", { adAccountId: z.string().optional(), predictionId: z.string().optional(), campaignId: z.string().optional(), budget: z.number().optional(), startTime: z.string().optional(), endTime: z.string().optional(), targeting: z.record(z.unknown()).optional(), frequencyCap: z.number().optional(), objective: z.string().optional(), destinationIds: z.array(z.string()).optional() }, guarded(async (a) => {
+    if (a.predictionId) return client.get(a.predictionId, { fields: "id,status,reach,impression,frequency_cap,budget,start_time,end_time,external_reach,external_budget,curve_budget_reach,time_created" });
+    assertWrites(config, "Create R&F prediction");
+    return client.post(`${act(a.adAccountId)}/reachfrequencypredictions`, { campaign_group_id: a.campaignId, budget: a.budget, start_time: a.startTime ? Math.floor(new Date(a.startTime).getTime() / 1000) : undefined, end_time: a.endTime ? Math.floor(new Date(a.endTime).getTime() / 1000) : undefined, target_spec: a.targeting, frequency_cap: a.frequencyCap, objective: a.objective, destination_ids: a.destinationIds, prediction_mode: 1 });
+  }));
+
+  server.tool("meta_audience_upload_session", "Upload a large customer list (>10k rows) in a session: call repeatedly with the same sessionId, batchSeq increasing, lastBatch=true on the final call.", { audienceId: z.string(), sessionId: z.string(), batchSeq: z.number(), lastBatch: z.boolean(), estimatedTotal: z.number().optional(), schema: z.array(z.string()).min(1), users: z.array(z.array(z.string())).min(1).max(10000) }, guarded(async ({ audienceId, sessionId, batchSeq, lastBatch, estimatedTotal, schema, users }) => {
+    assertWrites(config, "Audience session upload");
+    const noHash = new Set(["MADID", "EXTERN_ID"]);
+    const data = users.map((row) => row.map((v, i) => (noHash.has(schema[i] ?? "") ? v : sha256(v))));
+    return client.post(`${audienceId}/users`, { session: { session_id: sessionId, batch_seq: batchSeq, last_batch_flag: lastBatch, estimated_num_total: estimatedTotal }, payload: { schema: schema.length === 1 ? schema[0] : schema, data } });
+  }));
+
+  server.tool("meta_app_ads_apps", "Apps advertisable from this account (for app-install / app-event campaigns) and their SDK/event status.", { adAccountId: z.string().optional() }, guarded(async ({ adAccountId }) =>
+    client.getAll(`${act(adAccountId)}/advertisable_applications`, { fields: "id,name,app_type,object_store_urls,supported_platforms,advertisable_app_events" }),
+  ));
+
+  server.tool("meta_instagram_actors", "Instagram accounts usable as the ad identity on this account (real IG + page-backed).", { adAccountId: z.string().optional() }, guarded(async ({ adAccountId }) =>
+    client.getAll(`${act(adAccountId)}/instagram_accounts`, { fields: "id,username,profile_pic" }).catch((e: Error) => ({ error: e.message })),
+  ));
+
+  server.tool("meta_saved_reports", "Saved report definitions in Ads Reporting for the account.", { adAccountId: z.string().optional() }, guarded(async ({ adAccountId }) =>
+    client.getAll(`${act(adAccountId)}/adreportruns`, { fields: "id,account_id,async_status,date_start,date_stop,time_completed,is_bookmarked,is_running,schedule_id" }).catch((e: Error) => ({ error: e.message })),
+  ));
 };

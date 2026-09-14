@@ -1,7 +1,7 @@
 # meta-mcp
 
 One MCP server for the whole Meta business ecosystem, driven by a single System User token.
-185 tools in 10 modules. Full read/write; destructive or money-spending calls require `confirm: true`.
+301 tools in 11 modules. Full read/write; destructive or money-spending calls require `confirm: true`.
 
 Replaces `mcp-meta-ads_new` and `meta-business-mcp`.
 
@@ -21,15 +21,16 @@ Token requirements and Business Manager steps: [documentation/TOKEN-SETUP.md](do
 | Module | Tools | Covers |
 | --- | --- | --- |
 | overview | 6 | whoami, ecosystem map, rate limits, raw GET/POST/DELETE escape hatches |
-| business | 16 | Business Portfolio: assets, people, roles, system users, asset assignment, claims, client requests, verification status |
-| pages | 32 | Page profile/settings/roles, posts (publish, schedule, edit, delete, photos, videos, albums), comments + moderation, blocklist, ratings, visitor posts, insights, events, Live |
-| messenger | 13 | Meta Inbox (Messenger + IG DM conversations), send, sender actions, user profile, Messenger profile (menu, greeting, ice breakers), labels, handover |
-| instagram | 27 | profile, media, Stories, account + media insights, publishing (image, carousel, Reel, Story) with product/user tags, comments + moderation, hashtag search, tagged, business discovery, product tagging, branded content, DMs + ice breakers |
-| whatsapp | 13 | WABA, phone numbers, business profile, templates (list/create/delete), send (template/text/media/location/interactive), mark read, media URL, analytics, register, webhooks |
+| business | 26 | Business Portfolio: assets, people, roles, system users (+ API token minting), asset assignment, claims, partners (agencies/clients), credit lines + invoices, experiments (A/B, lift), pending claims, business-owned pixels |
+| pages | 50 | Page profile/settings/roles/CTA button/locations/agencies, posts (publish, schedule, edit, delete, dark posts), photos/videos/albums incl. local-file upload, **Reels** and **Stories** publishing, video insights + crossposting, comments + moderation + reactions + shares, blocklist, ratings + replies, visitor posts, insights, events, Live, all-pages snapshot |
+| messenger | 24 | Meta Inbox (Messenger + IG DM), send text/media/templates (generic, media, receipt), reusable attachments, reactions, sender actions, user profile, Messenger profile (menu, greeting, ice breakers), labels, recurring notifications, handover + thread control |
+| instagram | 40 | profile, media, Stories, carousels, account + media insights + online followers, publishing (image, carousel, Reel, Story) with product/user tags, comments + moderation + private replies, mentions, Live comments, hashtag search, tagged, business discovery, product tagging, branded content, partnership-ad permissions, boost eligibility, DMs + reactions + ice breakers + persistent menu |
+| whatsapp | 36 | WABA + health, phone numbers (add, verify, register, 2-step PIN, settings, display name), business profile, templates (list/create/edit/delete + analytics), **Flows** (create, upload JSON, publish, preview), send (template/text/media/location/interactive/reaction/sticker/contacts/flow/catalog), media upload, QR deep links, block list, commerce settings, message + conversation + pricing analytics, webhooks |
 | leads | 7 | Instant Forms list/create/archive, leads per form, all leads across Page, single lead, test leads |
-| catalog | 16 | catalogs, products (get/upsert/batch/delete), product sets, feeds, diagnostics, commerce accounts |
-| developer | 10 | app settings/roles, app-level webhook subscriptions, Page subscriptions, webhook sample test, token debug, Ad Library archive |
-| ads | 44 | ad accounts (+create), campaigns / ad sets / ads / creatives CRUD + copy + preview, image/video upload, labels, insights (sync + async + breakdowns), account snapshot, delivery estimate, targeting search, automated rules, custom / lookalike / saved audiences + hashed customer-list upload + sharing, pixels + stats + sharing, Conversions API (auto-hashed), offline event sets + uploads, attribution |
+| catalog | 25 | catalogs, products (get/upsert/batch/delete), product groups/variants, categories, product sets, feeds (+ localized), diagnostics, batch status, pixel linking, commerce accounts, shops, orders (list/ack/ship/cancel/refund), commerce insights |
+| developer | 17 | app settings/roles/permissions/test users/insights, app-level webhook subscriptions, Page + IG subscriptions, webhook sample test, token debug + long-lived exchange, Graph **batch API**, Ad Library archive |
+| ads | 62 | ad accounts (+create/update/users/billing/limits), campaigns / ad sets / ads / creatives CRUD + copy + preview, catalog (DPA) creatives, **boost post** one-shot, image/video upload, labels, insights (sync + async + advanced attribution), account snapshot, delivery estimate, targeting search, automated rules + history, custom / lookalike / saved audiences + hashed customer-list upload (+ sessions) + sharing, **custom conversions**, pixels + stats + sharing, Conversions API (auto-hashed), offline event sets + uploads, attribution, publisher block lists, Reach & Frequency predictions, app ads, IG actors, ad-level leads, saved report runs |
+| threads | 8 | Threads profile, posts, publish (text/image/video/carousel/reply), replies + hide, insights, publishing limit, delete. Needs `THREADS_ACCESS_TOKEN` |
 
 Set `META_*_ID` defaults in `.env` so tools can omit ids.
 
@@ -45,9 +46,15 @@ Set `META_*_ID` defaults in `.env` so tools can omit ids.
 ## Testing
 
 ```bash
-npm run smoke                      # 41 live read calls through the MCP protocol
+npm run smoke                      # 69 live read calls through the MCP protocol
 npx tsx scripts/write-roundtrip.ts # schedules a Page post 30 days out, verifies the confirm gate, deletes it
 ```
+
+## Findings from the live HaorGrix account (2026-09-15)
+
+- WhatsApp number `+880 1521-725028` is `platform_type: ON_PREMISE`, `status: DISCONNECTED`, `is_on_biz_app: true` — it lives on the WhatsApp Business phone app, not Cloud API. Reading works; sending via `meta_wa_send` fails with `#133010 Account not registered` until the number is migrated to Cloud API (Business settings → WhatsApp accounts → phone → Cloud API) or coexistence is set up.
+- Messenger custom labels need the Page inbox labels terms accepted once in the Page Inbox UI (`#2018344`).
+- Graph v23 removed `page_impressions*`, `page_fans*`, `post_impressions*`, `post_engaged_users`, the `owned_domains` edge, `secondary_receivers`, and Page `tabs`.
 
 ## Not covered (no API)
 

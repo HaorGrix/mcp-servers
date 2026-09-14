@@ -4,6 +4,8 @@
  * redaction. Knows nothing about MCP.
  */
 import { createHmac } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import { basename } from "node:path";
 import type { Config } from "./config.js";
 
 const RETRYABLE_CODES = new Set([1, 2, 4, 17, 32, 341, 613]);
@@ -220,6 +222,49 @@ export class GraphClient {
     return this.request<T>(path, params, { ...opts, method: "DELETE" });
   }
 
+  /** Multipart POST with a local file (WhatsApp media, Page photos/videos, Reels chunks). */
+  async upload<T>(path: string, filePath: string, fileField: string, fields: Record<string, unknown> = {}, opts: Omit<RequestOptions, "method" | "body"> = {}): Promise<T> {
+    const token = opts.token ?? this.config.token;
+    const host = opts.host ?? this.config.baseUrl;
+    const url = new URL(`${host}/${path.replace(/^\//, "")}`);
+    url.searchParams.set("access_token", token);
+    const proof = this.appSecretProof(token);
+    if (proof) url.searchParams.set("appsecret_proof", proof);
+    const buf = await readFile(filePath);
+    const form = new FormData();
+    for (const [k, v] of Object.entries(fields)) {
+      if (v === undefined || v === null) continue;
+      form.set(k, typeof v === "object" ? JSON.stringify(v) : String(v));
+    }
+    form.set(fileField, new Blob([buf]), basename(filePath));
+    const res = await fetch(url, { method: "POST", body: form });
+    this.trackUsage(res.headers);
+    const text = await res.text();
+    let payload: unknown;
+    try { payload = text ? JSON.parse(text) : {}; } catch { throw new GraphError(`Upload returned non-JSON (HTTP ${res.status}): ${this.redact(text.slice(0, 300))}`, { status: res.status, path }); }
+    const errBody = (payload as { error?: Record<string, unknown> }).error;
+    if (errBody) throw new GraphError(this.redact(String(errBody["message"] ?? "Upload failed")), { code: errBody["code"] as number | undefined, subcode: errBody["error_subcode"] as number | undefined, status: res.status, path, traceId: errBody["fbtrace_id"] as string | undefined, userMessage: errBody["error_user_msg"] as string | undefined });
+    return payload as T;
+  }
+
+  /** Raw binary POST (resumable upload chunks). */
+  async uploadBinary<T>(url: string, body: Buffer, headers: Record<string, string>): Promise<T> {
+    const res = await fetch(url, { method: "POST", body, headers });
+    const text = await res.text();
+    let payload: unknown;
+    try { payload = text ? JSON.parse(text) : {}; } catch { throw new GraphError(`Binary upload returned non-JSON (HTTP ${res.status}): ${this.redact(text.slice(0, 300))}`, { status: res.status }); }
+    const errBody = (payload as { error?: Record<string, unknown> }).error;
+    if (errBody) throw new GraphError(this.redact(String(errBody["message"] ?? "Upload failed")), { code: errBody["code"] as number | undefined, status: res.status });
+    return payload as T;
+  }
+
+  /** Graph batch API: up to 50 requests in one round trip. */
+  async batch(requests: Array<{ method: "GET" | "POST" | "DELETE"; relative_url: string; body?: Record<string, unknown>; name?: string; depends_on?: string }>, opts: { token?: string } = {}): Promise<Array<{ code: number; body: unknown }>> {
+    const prepared = requests.map((r) => ({ ...r, body: r.body ? new URLSearchParams(Object.entries(r.body).map(([k, v]): [string, string] => [k, typeof v === "object" ? JSON.stringify(v) : String(v)])).toString() : undefined }));
+    const res = await this.request<Array<{ code: number; body: string } | null>>("", {}, { method: "POST", body: { batch: prepared, include_headers: false }, token: opts.token });
+    return res.map((r) => (r ? { code: r.code, body: safeJson(r.body) } : { code: 0, body: null }));
+  }
+
   /** Walk a paginated edge up to `maxPages` pages. */
   async getAll<T>(path: string, params: Params = {}, opts: Omit<RequestOptions, "method" | "body"> = {}, maxPages = 20): Promise<T[]> {
     const items: T[] = [];
@@ -232,6 +277,10 @@ export class GraphClient {
     }
     return items;
   }
+}
+
+function safeJson(text: string): unknown {
+  try { return JSON.parse(text); } catch { return text; }
 }
 
 function sleep(ms: number): Promise<void> {
