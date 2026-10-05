@@ -9,3 +9,6 @@
 
 ## [2026-10-05] — Keyless analysis tools
 - Added 5 tools folding in SEO Chrome-extension capabilities: onpage_audit, hreflang_check, sitemap_discover, sitemap_parse, traffic_estimate (Similarweb free feed). No API keys required. Deps: cheerio, fast-xml-parser. Tool count 12 -> 17.
+
+## [2026-10-05] — Provider check
+- Live test vs haorgrix.com: OPR working; 5 keyless tools working; Ahrefs 401 (bad/no-API key); Keywords Everywhere 402 (out of credits).

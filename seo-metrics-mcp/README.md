@@ -55,3 +55,9 @@ authority/keyword numbers.
 - `traffic_estimate <domain>` — Similarweb free anonymous feed: global/country/category rank, estimated monthly visits, bounce rate, visit duration, pages-per-visit, traffic-source split (incl. Gen-AI), top countries, top keywords, AI-prompt traffic. Modeled estimates, IP-rate-limited (HTTP 403 at quota), often N/A for low-traffic sites; use ahrefs/opr for backlinks and guaranteed data.
 
 Deps added: `cheerio` (HTML parse), `fast-xml-parser` (sitemap XML).
+
+## Live status (checked 2026-10-05, against haorgrix.com)
+- Open PageRank (`opr_*`): WORKING.
+- Keyless tools (`onpage_audit`, `hreflang_check`, `sitemap_discover`, `sitemap_parse`, `traffic_estimate`): WORKING, no keys needed.
+- Ahrefs (`ahrefs_*`): key present but returns 401 Unauthorized — needs an API-enabled / non-stale key.
+- Keywords Everywhere (`ke_*`): key valid but 402 Insufficient Credits — needs a credit top-up.
